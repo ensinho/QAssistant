@@ -1,0 +1,117 @@
+{
+  "name": "qassistant-vscode",
+  "displayName": "QAssistant",
+  "description": "QA operacional com OpenProject, resumos por commits, testes guiados e agents no VS Code.",
+  "version": "0.1.6",
+  "publisher": "ormel",
+  "private": true,
+  "icon": "media/qassistant-logo.png",
+  "galleryBanner": {
+    "color": "101820",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=18.18.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "main": "./dist/host/extensao.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qassistant",
+          "title": "QAssistant",
+          "icon": "media/qassistant-logo-source.svg"
+        }
+      ]
+    },
+    "views": {
+      "qassistant": [
+        {
+          "id": "qassistant.painel",
+          "name": "Painel",
+          "type": "webview",
+          "icon": "media/qassistant-logo-source.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "qassistant.abrirPainel",
+        "title": "QAssistant: Abrir painel",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "qassistant.inicializarWorkspace",
+        "title": "QAssistant: Inicializar workspace"
+      },
+      {
+        "command": "qassistant.atualizarPainel",
+        "title": "QAssistant: Atualizar painel",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "qassistant.abrirTesteEmAba",
+        "title": "QAssistant: Abrir QA Runner em aba",
+        "icon": "$(open-preview)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "qassistant.atualizarPainel",
+          "when": "view == qassistant.painel",
+          "group": "navigation@1"
+        },
+        {
+          "command": "qassistant.abrirTesteEmAba",
+          "when": "view == qassistant.painel",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "QAssistant",
+      "properties": {
+        "qassistant.openProject.intervaloPollingSegundos": {
+          "type": "number",
+          "default": 60,
+          "description": "Intervalo padrao, em segundos, para acompanhar a task vinculada no OpenProject."
+        },
+        "qassistant.resumos.commitsPadrao": {
+          "type": "number",
+          "default": 10,
+          "description": "Quantidade padrao de commits candidatos para a rodada de resumo QA."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run build:webview && npm run build:host",
+    "build:host": "tsc -p tsconfig.json --noEmit && node esbuild.config.cjs",
+    "build:webview": "vite build --config vite.config.ts",
+    "dev:webview": "vite --config vite.config.ts",
+    "watch:host": "tsc -p tsconfig.json --watch --noEmit",
+    "package:vsix": "npm run build && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository --skip-license",
+    "test": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@qassistant/nucleo": "0.1.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.28.0",
+    "vite": "^6.0.7"
+  },
+  "license": "UNLICENSED"
+}

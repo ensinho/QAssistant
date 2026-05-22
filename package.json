@@ -1,0 +1,28 @@
+{
+  "name": "qassistant-workspace",
+  "private": true,
+  "version": "0.1.1",
+  "description": "QAssistant: extensao VS Code para QA operacional, OpenProject, resumos por commits e testes guiados por agent.",
+  "workspaces": [
+    "packages/nucleo",
+    "packages/extensao-vscode"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "build:nucleo": "npm run build -w @qassistant/nucleo",
+    "build:extensao": "npm run build -w qassistant-vscode",
+    "dev:webview": "npm run dev:webview -w qassistant-vscode",
+    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
+    "package:vsix": "npm run package:vsix -w qassistant-vscode",
+    "package:vsix:install": "node ./scripts/build-instalar-extensao.mjs",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "license": "UNLICENSED"
+}

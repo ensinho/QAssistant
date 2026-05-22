@@ -1,0 +1,76 @@
+:root {
+  color-scheme: light dark;
+
+  --qa-font-family: var(--vscode-font-family, ui-sans-serif, system-ui, sans-serif);
+  --qa-font-size-xs: 11px;
+  --qa-font-size-sm: 12px;
+  --qa-font-size-md: 13px;
+  --qa-font-size-lg: 16px;
+  --qa-font-size-xl: 22px;
+  --qa-line-tight: 1.2;
+  --qa-line-normal: 1.5;
+
+  --qa-space-1: 4px;
+  --qa-space-2: 8px;
+  --qa-space-3: 12px;
+  --qa-space-4: 16px;
+  --qa-space-5: 20px;
+  --qa-space-6: 24px;
+  --qa-space-8: 32px;
+
+  --qa-radius-sm: 6px;
+  --qa-radius-md: 8px;
+  --qa-radius-lg: 12px;
+  --qa-radius-pill: 999px;
+
+  --qa-bg: var(--vscode-editor-background, #0f141b);
+  --qa-bg-elevated: var(--vscode-sideBar-background, #151c25);
+  --qa-bg-muted: var(--vscode-input-background, #1b2430);
+  --qa-surface: color-mix(in srgb, var(--qa-bg-elevated) 92%, var(--qa-foreground) 8%);
+  --qa-surface-subtle: color-mix(in srgb, var(--qa-bg-elevated) 82%, var(--qa-bg) 18%);
+  --qa-surface-strong: color-mix(in srgb, var(--qa-bg-elevated) 70%, var(--qa-bg) 30%);
+
+  --qa-foreground: var(--vscode-foreground, #edf3f7);
+  --qa-muted: var(--vscode-descriptionForeground, #a8b3bf);
+  --qa-border: var(--vscode-panel-border, #2f3b4a);
+  --qa-border-strong: var(--vscode-focusBorder, #58e6e6);
+  --qa-brand: var(--vscode-button-background, #2fc7d2);
+  --qa-brand-foreground: var(--vscode-button-foreground, #071014);
+  --qa-brand-hover: var(--vscode-button-hoverBackground, #58e6e6);
+  --qa-link: var(--vscode-textLink-foreground, #58e6e6);
+  --qa-info: var(--vscode-editorInfo-foreground, var(--qa-link));
+  --qa-error: var(--vscode-errorForeground, #f97070);
+  --qa-warning: var(--vscode-editorWarning-foreground, #f0b85a);
+  --qa-success: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen, #4ec982));
+  --qa-danger: var(--qa-error);
+
+  --qa-overlay: color-mix(in srgb, var(--qa-bg) 70%, transparent);
+  --qa-overlay-strong: color-mix(in srgb, var(--qa-bg) 84%, transparent);
+  --qa-code-bg: color-mix(in srgb, var(--qa-bg-muted) 76%, var(--qa-bg) 24%);
+  --qa-code-border: color-mix(in srgb, var(--qa-border) 72%, var(--qa-bg) 28%);
+  --qa-code-foreground: color-mix(in srgb, var(--qa-foreground) 92%, var(--qa-muted) 8%);
+
+  --qa-info-faint: color-mix(in srgb, var(--qa-info) 14%, transparent);
+  --qa-success-faint: color-mix(in srgb, var(--qa-success) 14%, transparent);
+  --qa-warning-faint: color-mix(in srgb, var(--qa-warning) 14%, transparent);
+  --qa-error-faint: color-mix(in srgb, var(--qa-error) 14%, transparent);
+
+  --qa-shadow-soft: 0 1px 0 rgba(255,255,255,.03), 0 10px 30px rgba(0,0,0,.16);
+}
+
+@supports not (color: color-mix(in srgb, white, black)) {
+  :root {
+    --qa-surface: var(--qa-bg-elevated);
+    --qa-surface-subtle: var(--qa-bg-muted);
+    --qa-surface-strong: var(--qa-bg-elevated);
+    --qa-overlay: rgba(0, 0, 0, .55);
+    --qa-overlay-strong: rgba(0, 0, 0, .72);
+    --qa-code-bg: var(--qa-bg-muted);
+    --qa-code-border: var(--qa-border);
+    --qa-code-foreground: var(--qa-foreground);
+    --qa-info-faint: rgba(88, 166, 255, .14);
+    --qa-success-faint: rgba(78, 201, 130, .14);
+    --qa-warning-faint: rgba(240, 184, 90, .14);
+    --qa-error-faint: rgba(249, 112, 112, .14);
+  }
+}

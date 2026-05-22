@@ -1,0 +1,12 @@
+{
+  "name": "@qassistant/nucleo",
+  "version": "0.1.1",
+  "description": "Nucleo de dominio do QAssistant.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.json --noEmit"
+  },
+  "license": "UNLICENSED"
+}
