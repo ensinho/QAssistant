@@ -51,6 +51,17 @@
 6. Usuario executa testes existentes ou abre pastas/arquivos para edicao.
 7. Quando a cobertura muda, `Qassistant-testes/mapa-de-testes.yaml` deve ser atualizado na mesma entrega.
 
+### Criacao guiada de prompt para agente
+
+1. Usuario abre o criador guiado na aba de Testes.
+2. Escolhe o tipo de teste e, quando necessario, a stack alvo (frontend ou backend).
+3. Informa objetivo, contexto adicional e observacoes/cenarios prioritarios.
+4. Pode navegar por arquivos e pastas do workspace em um seletor interno, sem sequestrar o navegador principal do painel.
+5. Se houver pacote ativo em `Qassistant-testes/validacoes/`, o criador pode aproveitar automaticamente objetivo, resumo e arquivos sugeridos.
+6. QAssistant adapta o template base do tipo escolhido com os parametros informados.
+7. O prompt final e salvo na pasta de prompts gerados do tipo, aberto no editor e copiado para a area de transferencia.
+8. O fluxo gera prompt para o agente; ele nao cria automaticamente o teste nem altera `Qassistant-testes/mapa-de-testes.yaml` sozinho.
+
 ## 5. OpenProject
 
 1. Usuario configura URL e token de acesso.

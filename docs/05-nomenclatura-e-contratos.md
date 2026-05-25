@@ -53,6 +53,8 @@ type MensagemWebviewParaHost =
 	| { tipo: 'validacao.selecionarPacote'; caminhoRelativo: string }
 	| { tipo: 'validacao.excluirPacote'; caminhoRelativo: string }
 	| { tipo: 'testes.executar'; categoria: string; nomeExecucao?: string }
+	| { tipo: 'testes.navegarSeletorPrompt'; contexto: 'arquivos' | 'pastas'; caminhoRelativo: string }
+	| { tipo: 'testes.gerarPromptAssistido'; payload: PromptAssistidoTeste }
 	| { tipo: 'testes.limparHistorico' }
 	| { tipo: 'testes.abrirEmAba' }
 	| { tipo: 'testes.fecharAba' }
@@ -64,6 +66,8 @@ type MensagemWebviewParaHost =
 type MensagemHostParaWebview =
 	| { tipo: 'estado.atualizado'; estado: EstadoPainel }
 	| { tipo: 'workspace.diretorioSelecionado'; campo: 'raizCodigo' | 'frontend' | 'backend'; caminho: string }
+	| { tipo: 'testes.seletorPromptAtualizado'; contexto: 'arquivos' | 'pastas'; navegador: NavegadorQAssistant }
+	| { tipo: 'testes.promptAssistidoGerado'; caminhoRelativo: string; conteudo: string; copiado: boolean }
 	| { tipo: 'openproject.validacaoConcluida'; sucesso: boolean; mensagem: string; projeto?: { nome: string; identificador?: string }; projetosDisponiveis?: { nome: string; identificador: string }[] }
 	| { tipo: 'notificacao.info'; mensagem: string }
 	| { tipo: 'notificacao.erro'; mensagem: string };
@@ -75,6 +79,10 @@ Fonte de verdade dos contratos: `packages/extensao-vscode/src/contratos/mensagen
 
 `workspace.selecionarDiretorio` abre o picker nativo do VS Code para selecionar uma pasta dentro do workspace atual e devolve o caminho relativo em `workspace.diretorioSelecionado`.
 
+`testes.navegarSeletorPrompt` abre um navegador interno dedicado ao criador de prompt, com filtros proprios para navegar por arquivos ou apenas por pastas sem interferir em `estado.navegador`.
+
+`testes.gerarPromptAssistido` adapta o template base do tipo escolhido com os parametros fornecidos, salva o arquivo na pasta de prompts gerados do tipo, abre no editor e copia o conteudo para a area de transferencia.
+
 `validacao.criarRascunho` cria uma rodada em `Qassistant-testes/validacoes/` e atualiza `ultimoPacoteValidacao` no estado do painel.
 
 `validacao.criarComCommits` cria uma rodada usando hashes carregados pela integracao Git.
@@ -84,6 +92,8 @@ Fonte de verdade dos contratos: `packages/extensao-vscode/src/contratos/mensagen
 `openproject.validarConexao` testa URL e token durante o onboarding ou na aba de configuracao. Quando a conexao e valida, o host tambem lista os projetos disponiveis para esse acesso; `projetoRef` continua aceitando nome amigavel ou identificador tecnico como compatibilidade para fluxos que ainda precisem resolver um projeto explicitamente.
 
 `openproject.validacaoConcluida` devolve para a webview o resultado da validacao e, quando disponivel, a lista de projetos acessiveis para selecao imediata sem depender de notificacoes genericas.
+
+`PromptAssistidoTeste` carrega o estado minimo do criador guiado: tipo de teste, stack opcional, objetivo, contexto adicional, observacoes/cenarios, arquivos selecionados, pastas selecionadas e uso opcional do pacote ativo.
 
 ## Contratos host/webview
 

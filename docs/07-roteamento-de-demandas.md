@@ -63,6 +63,15 @@ Sempre comece pelos contratos e pelo fluxo real do host antes de alterar UI ou g
 - Estilos gerais: `packages/extensao-vscode/src/webview/styles.css`.
 - Regra: manter acoes visiveis sempre operacionais (sem CTA decorativo).
 
+### 9) Criador guiado de prompt de teste
+
+- Contratos: `packages/extensao-vscode/src/contratos/mensagens.ts`.
+- Host e composicao do prompt: `packages/extensao-vscode/src/host/painel/provedor-painel.ts`.
+- Modal, steps e seletor na UI: `packages/extensao-vscode/src/webview/modulos/App.tsx`.
+- Classes compartilhadas do fluxo: `packages/extensao-vscode/src/webview/styles.css`.
+- Fonte de verdade dos templates: `Qassistant-testes/**/prompts/criar-teste-*.prompt.md`.
+- Regra: o fluxo gera prompt para agente, nao cria teste automaticamente; por isso nao altera `Qassistant-testes/mapa-de-testes.yaml` sozinho.
+
 ### 8.1) Padroes compartilhados obrigatorios
 
 - Antes de editar JSX em `App.tsx`, `TestRunnerAba.tsx` ou `ErrorBoundary.tsx`, verifique se o padrao ja existe em `styles.css`.

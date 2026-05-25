@@ -23,6 +23,23 @@ export const SetupWorkspaceSchema = z.object({
 export type SetupWorkspace = z.infer<typeof SetupWorkspaceSchema>;
 export const CampoDiretorioSetupSchema = z.enum(['raizCodigo', 'frontend', 'backend']);
 export type CampoDiretorioSetup = z.infer<typeof CampoDiretorioSetupSchema>;
+export const TipoTesteAssistidoSchema = z.enum(['unitario', 'integracao', 'componente', 'ponta-a-ponta', 'usabilidade', 'acessibilidade', 'desempenho', 'carga']);
+export type TipoTesteAssistido = z.infer<typeof TipoTesteAssistidoSchema>;
+export const StackTesteAssistidoSchema = z.enum(['backend', 'frontend']);
+export type StackTesteAssistido = z.infer<typeof StackTesteAssistidoSchema>;
+export const ContextoSeletorPromptSchema = z.enum(['arquivos', 'pastas']);
+export type ContextoSeletorPrompt = z.infer<typeof ContextoSeletorPromptSchema>;
+export const PromptAssistidoTesteSchema = z.object({
+  tipoTeste: TipoTesteAssistidoSchema,
+  stack: StackTesteAssistidoSchema.optional(),
+  objetivo: z.string().min(8),
+  contextoAdicional: z.string().optional(),
+  cenariosObservacoes: z.string().optional(),
+  arquivosSelecionados: z.array(z.string().min(1)).default([]),
+  pastasSelecionadas: z.array(z.string().min(1)).default([]),
+  usarPacoteAtivo: z.boolean().default(false),
+});
+export type PromptAssistidoTeste = z.infer<typeof PromptAssistidoTesteSchema>;
 
 export interface ProjetoOpenProjectDisponivel {
   nome: string;
@@ -55,6 +72,8 @@ export const MensagemWebviewParaHostSchema = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('validacao.selecionarPacote'), caminhoRelativo: z.string().min(1) }),
   z.object({ tipo: z.literal('validacao.excluirPacote'), caminhoRelativo: z.string().min(1) }),
   z.object({ tipo: z.literal('testes.executar'), categoria: z.string(), nomeExecucao: z.string().optional() }),
+  z.object({ tipo: z.literal('testes.navegarSeletorPrompt'), contexto: ContextoSeletorPromptSchema, caminhoRelativo: z.string().default('.') }),
+  z.object({ tipo: z.literal('testes.gerarPromptAssistido'), payload: PromptAssistidoTesteSchema }),
   z.object({ tipo: z.literal('testes.limparHistorico') }),
   z.object({ tipo: z.literal('testes.abrirEmAba') }),
   z.object({ tipo: z.literal('testes.fecharAba') }),
@@ -209,6 +228,8 @@ export interface EstadoPainel {
 export type MensagemHostParaWebview =
   | { tipo: 'estado.atualizado'; estado: EstadoPainel }
   | { tipo: 'workspace.diretorioSelecionado'; campo: CampoDiretorioSetup; caminho: string }
+  | { tipo: 'testes.seletorPromptAtualizado'; contexto: ContextoSeletorPrompt; navegador: NavegadorQAssistant }
+  | { tipo: 'testes.promptAssistidoGerado'; caminhoRelativo: string; conteudo: string; copiado: boolean }
   | {
       tipo: 'openproject.validacaoConcluida';
       sucesso: boolean;

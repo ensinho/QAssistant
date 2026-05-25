@@ -84,6 +84,13 @@
 - Os campos de raiz do codigo, frontend e backend passaram a aceitar selecao por pasta usando o picker nativo do VS Code.
 - O resumo do dashboard deixou de comunicar polling ativo como se estivesse implementado e passou a refletir o estado real de consulta sob demanda.
 
+### Criador guiado de prompt de teste
+
+- A aba de Testes passou a oferecer um criador guiado de prompt para agente, com modal em etapas para tipo, stack, contexto, observacoes e selecao de arquivos/pastas.
+- O fluxo reutiliza os templates base existentes em `Qassistant-testes/**/prompts/` e gera um novo prompt parametrizado sem duplicar esses modelos no codigo da extensao.
+- O navegador usado nesse modal e dedicado ao criador e nao interfere no navegador principal do painel.
+- Ao concluir, o prompt e salvo na pasta de prompts gerados do tipo, aberto no editor e copiado para a area de transferencia.
+
 ### Prompts, regras e scaffold de QA
 
 - O scaffold do `@qassistant/nucleo` passou a criar `docs/contexto/INDEX.md` para oferecer uma entrada explicita de contexto quando `docs/context/INDEX.md` nao existir.

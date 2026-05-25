@@ -1,6 +1,20 @@
 import type { FC, ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import type { CampoDiretorioSetup, CommitGitQAssistant, EstadoPainel, MensagemHostParaWebview, MensagemWebviewParaHost, ProjetoOpenProjectDisponivel, SetupWorkspace, TaskOpenProjectQA } from '../../contratos/mensagens';
+import type {
+  CampoDiretorioSetup,
+  CommitGitQAssistant,
+  ContextoSeletorPrompt,
+  EstadoPainel,
+  MensagemHostParaWebview,
+  MensagemWebviewParaHost,
+  NavegadorQAssistant,
+  ProjetoOpenProjectDisponivel,
+  PromptAssistidoTeste,
+  SetupWorkspace,
+  StackTesteAssistido,
+  TaskOpenProjectQA,
+  TipoTesteAssistido,
+} from '../../contratos/mensagens';
 import vsCodeApi from '../vscodeApi';
 
 const vscode = vsCodeApi;
@@ -65,6 +79,48 @@ interface EstadoValidacaoOpenProject {
   mensagem: string;
   projetoNome?: string;
 }
+
+type EtapaCriadorPrompt = 'parametros' | 'contexto' | 'resultado';
+
+interface SeletorPromptAssistidoState {
+  contexto: ContextoSeletorPrompt;
+  navegador: NavegadorQAssistant;
+}
+
+interface ResultadoPromptAssistido {
+  caminhoRelativo: string;
+  conteudo: string;
+  copiado: boolean;
+}
+
+interface TipoPromptAssistidoMeta {
+  id: TipoTesteAssistido;
+  titulo: string;
+  descricao: string;
+  exigeStack: boolean;
+}
+
+const PROMPT_ASSISTIDO_INICIAL: PromptAssistidoTeste = {
+  tipoTeste: 'unitario',
+  stack: 'backend',
+  objetivo: '',
+  contextoAdicional: '',
+  cenariosObservacoes: '',
+  arquivosSelecionados: [],
+  pastasSelecionadas: [],
+  usarPacoteAtivo: false,
+};
+
+const TIPOS_PROMPT_ASSISTIDO: TipoPromptAssistidoMeta[] = [
+  { id: 'unitario', titulo: 'Unitario', descricao: 'Cobertura focada em funcoes, hooks, servicos ou componentes isolados.', exigeStack: true },
+  { id: 'integracao', titulo: 'Integracao', descricao: 'Fluxos entre camadas, APIs, persistencia ou composicao de modulos.', exigeStack: true },
+  { id: 'componente', titulo: 'Componente', descricao: 'Comportamento de componentes React e estados de interface.', exigeStack: false },
+  { id: 'ponta-a-ponta', titulo: 'Ponta a ponta', descricao: 'Jornadas completas do usuario e navegacao do sistema.', exigeStack: false },
+  { id: 'usabilidade', titulo: 'Usabilidade', descricao: 'Fluxos guiados por clareza, feedback, ergonomia e compreensao.', exigeStack: false },
+  { id: 'acessibilidade', titulo: 'Acessibilidade', descricao: 'Navegacao por teclado, semantica, labels e feedback assistivo.', exigeStack: false },
+  { id: 'desempenho', titulo: 'Desempenho', descricao: 'Medições, gargalos e comportamento sob carga moderada.', exigeStack: false },
+  { id: 'carga', titulo: 'Carga', descricao: 'Cenarios de volume, concorrencia e saturacao controlada.', exigeStack: false },
+];
 
 // Ícone: Voltar
 const IconArrowLeft: FC = () => (
@@ -290,6 +346,12 @@ export function App(): ReactElement {
   const [tokenOpenProject, setTokenOpenProject] = useState('');
   const [validacaoOpenProject, setValidacaoOpenProject] = useState<EstadoValidacaoOpenProject>({ status: 'ocioso', mensagem: '' });
   const [projetosOpenProjectDisponiveis, setProjetosOpenProjectDisponiveis] = useState<ProjetoOpenProjectDisponivel[]>([]);
+  const [modalCriadorPromptAberto, setModalCriadorPromptAberto] = useState(false);
+  const [etapaCriadorPrompt, setEtapaCriadorPrompt] = useState<EtapaCriadorPrompt>('parametros');
+  const [formCriadorPrompt, setFormCriadorPrompt] = useState<PromptAssistidoTeste>(PROMPT_ASSISTIDO_INICIAL);
+  const [seletorPromptAssistido, setSeletorPromptAssistido] = useState<SeletorPromptAssistidoState | null>(null);
+  const [resultadoPromptAssistido, setResultadoPromptAssistido] = useState<ResultadoPromptAssistido | null>(null);
+  const [busyCriadorPrompt, setBusyCriadorPrompt] = useState({ contexto: false, artefato: false });
 
   const taskAtiva = useMemo(() => {
     if (!selectedTask) return null;
@@ -299,6 +361,26 @@ export function App(): ReactElement {
   const projetoOpenProjectSelecionado = useMemo(
     () => projetosOpenProjectDisponiveis.find((item) => item.identificador === setup.openProjectProjetoId),
     [projetosOpenProjectDisponiveis, setup.openProjectProjetoId],
+  );
+
+  const metaTipoPromptAssistido = useMemo(
+    () => obterMetaTipoPromptAssistido(formCriadorPrompt.tipoTeste),
+    [formCriadorPrompt.tipoTeste],
+  );
+
+  const arquivosSugeridosPacoteAtivo = useMemo(
+    () => extrairArquivosSugeridosPacote(estado),
+    [estado.git.recentes, estado.ultimoPacoteValidacao],
+  );
+
+  const podeAvancarCriadorPrompt = useMemo(
+    () => formCriadorPrompt.objetivo.trim().length >= 8 && (!metaTipoPromptAssistido.exigeStack || Boolean(formCriadorPrompt.stack)),
+    [formCriadorPrompt.objetivo, formCriadorPrompt.stack, metaTipoPromptAssistido.exigeStack],
+  );
+
+  const podeGerarPromptAssistido = useMemo(
+    () => formCriadorPrompt.objetivo.trim().length >= 8 && (!metaTipoPromptAssistido.exigeStack || Boolean(formCriadorPrompt.stack)),
+    [formCriadorPrompt.objetivo, formCriadorPrompt.stack, metaTipoPromptAssistido.exigeStack],
   );
 
   // Limpar formulário de comentário ao trocar/fechar tarefa
@@ -345,6 +427,21 @@ export function App(): ReactElement {
         setSetup((atual) => ({ ...atual, [mensagemRecebida.campo]: mensagemRecebida.caminho }));
         return;
       }
+      if (mensagemRecebida.tipo === 'testes.seletorPromptAtualizado') {
+        setBusyCriadorPrompt((atual) => ({ ...atual, contexto: false }));
+        setSeletorPromptAssistido({ contexto: mensagemRecebida.contexto, navegador: mensagemRecebida.navegador });
+        return;
+      }
+      if (mensagemRecebida.tipo === 'testes.promptAssistidoGerado') {
+        setBusyCriadorPrompt((atual) => ({ ...atual, artefato: false }));
+        setResultadoPromptAssistido({
+          caminhoRelativo: mensagemRecebida.caminhoRelativo,
+          conteudo: mensagemRecebida.conteudo,
+          copiado: mensagemRecebida.copiado,
+        });
+        setEtapaCriadorPrompt('resultado');
+        return;
+      }
       if (mensagemRecebida.tipo === 'openproject.validacaoConcluida') {
         const projetos = mensagemRecebida.projetosDisponiveis || [];
         setProjetosOpenProjectDisponiveis(projetos);
@@ -373,8 +470,10 @@ export function App(): ReactElement {
       if (mensagemRecebida.tipo === 'notificacao.info' || mensagemRecebida.tipo === 'notificacao.erro') {
         setProcessandoIA(null);
         setEnviandoComentario(false);
+        setBusyCriadorPrompt({ contexto: false, artefato: false });
+        setMensagem(mensagemRecebida.mensagem);
+        return;
       }
-      setMensagem(mensagemRecebida.mensagem);
     };
 
     window.addEventListener('message', escutarMensagem);
@@ -530,6 +629,105 @@ export function App(): ReactElement {
         </div>
       </label>
     );
+  }
+
+  function abrirCriadorPromptAssistido(): void {
+    const stackInferida = inferirStackPromptAssistido(arquivosSugeridosPacoteAtivo, setup);
+    setFormCriadorPrompt({
+      ...PROMPT_ASSISTIDO_INICIAL,
+      stack: stackInferida || PROMPT_ASSISTIDO_INICIAL.stack,
+      objetivo: estado.ultimoPacoteValidacao?.titulo ? `Criar prompt de teste para ${estado.ultimoPacoteValidacao.titulo}` : '',
+      contextoAdicional: criarResumoContextoPacote(estado.ultimoPacoteValidacao?.resumoQaConteudo),
+      cenariosObservacoes: criarResumoObservacoesPacote(estado.ultimoPacoteValidacao?.commits || []),
+      arquivosSelecionados: arquivosSugeridosPacoteAtivo,
+      usarPacoteAtivo: Boolean(estado.ultimoPacoteValidacao),
+    });
+    setSeletorPromptAssistido(null);
+    setResultadoPromptAssistido(null);
+    setBusyCriadorPrompt({ contexto: false, artefato: false });
+    setEtapaCriadorPrompt('parametros');
+    setModalCriadorPromptAberto(true);
+  }
+
+  function fecharCriadorPromptAssistido(): void {
+    setModalCriadorPromptAberto(false);
+    setSeletorPromptAssistido(null);
+    setResultadoPromptAssistido(null);
+    setBusyCriadorPrompt({ contexto: false, artefato: false });
+    setEtapaCriadorPrompt('parametros');
+  }
+
+  function atualizarCriadorPrompt<K extends keyof PromptAssistidoTeste>(campo: K, valor: PromptAssistidoTeste[K]): void {
+    setResultadoPromptAssistido(null);
+    setFormCriadorPrompt((atual) => {
+      const proximo: PromptAssistidoTeste = { ...atual, [campo]: valor };
+      if (campo === 'tipoTeste') {
+        const meta = obterMetaTipoPromptAssistido(valor as TipoTesteAssistido);
+        proximo.stack = meta.exigeStack ? (proximo.stack || inferirStackPromptAssistido(proximo.arquivosSelecionados, setup) || 'backend') : undefined;
+      }
+      return proximo;
+    });
+  }
+
+  function abrirSeletorPromptAssistido(contexto: ContextoSeletorPrompt, caminhoRelativo?: string): void {
+    setBusyCriadorPrompt((atual) => ({ ...atual, contexto: true }));
+    enviar({
+      tipo: 'testes.navegarSeletorPrompt',
+      contexto,
+      caminhoRelativo: caminhoRelativo || sugerirCaminhoInicialSeletorPrompt(contexto, formCriadorPrompt, setup, seletorPromptAssistido),
+    });
+  }
+
+  function alternarSelecaoPromptAssistido(contexto: ContextoSeletorPrompt, caminhoRelativo: string): void {
+    setResultadoPromptAssistido(null);
+    setFormCriadorPrompt((atual) => {
+      const campo = contexto === 'arquivos' ? 'arquivosSelecionados' : 'pastasSelecionadas';
+      const listaAtual = atual[campo] || [];
+      const proximaLista = listaAtual.includes(caminhoRelativo)
+        ? listaAtual.filter((item) => item !== caminhoRelativo)
+        : [...listaAtual, caminhoRelativo].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      return { ...atual, [campo]: proximaLista };
+    });
+  }
+
+  function removerSelecaoPromptAssistido(contexto: ContextoSeletorPrompt, caminhoRelativo: string): void {
+    setResultadoPromptAssistido(null);
+    setFormCriadorPrompt((atual) => {
+      const campo = contexto === 'arquivos' ? 'arquivosSelecionados' : 'pastasSelecionadas';
+      return { ...atual, [campo]: (atual[campo] || []).filter((item) => item !== caminhoRelativo) };
+    });
+  }
+
+  function avancarCriadorPrompt(): void {
+    if (etapaCriadorPrompt === 'parametros') {
+      setEtapaCriadorPrompt('contexto');
+      return;
+    }
+    if (etapaCriadorPrompt === 'contexto') {
+      setEtapaCriadorPrompt('resultado');
+    }
+  }
+
+  function voltarCriadorPrompt(): void {
+    if (etapaCriadorPrompt === 'resultado') {
+      setEtapaCriadorPrompt('contexto');
+      return;
+    }
+    if (etapaCriadorPrompt === 'contexto') {
+      setEtapaCriadorPrompt('parametros');
+    }
+  }
+
+  function gerarPromptAssistido(): void {
+    setBusyCriadorPrompt((atual) => ({ ...atual, artefato: true }));
+    setResultadoPromptAssistido(null);
+    enviar({
+      tipo: 'testes.gerarPromptAssistido',
+      payload: {
+        ...formCriadorPrompt,
+        stack: metaTipoPromptAssistido.exigeStack ? formCriadorPrompt.stack : undefined,
+      },
+    });
   }
 
   function recarregarCommits(): void {
@@ -1656,6 +1854,25 @@ export function App(): ReactElement {
                   </div>
 
                   <div className="resource-card-grid">
+
+                    <div className="op-card resource-card">
+                      <div className="resource-card__header">
+                        <IconSparkles />
+                        <strong>Criador guiado</strong>
+                      </div>
+                      <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
+                        Monte um prompt parametrizado com contexto, arquivos, pastas e observações para usar direto no agente.
+                      </p>
+                      <button
+                        type="button"
+                        className="secondary resource-card__action"
+                        onClick={abrirCriadorPromptAssistido}
+                        disabled={!estado.workspaceInicializado}
+                      >
+                        <IconSparkles />
+                        <span>Montar prompt</span>
+                      </button>
+                    </div>
                     
                     {/* Card Mapa de Testes */}
                     <div className="op-card resource-card">
@@ -2753,6 +2970,308 @@ export function App(): ReactElement {
         )}
       </div>
 
+      {modalCriadorPromptAberto && (
+        <div className="modal-backdrop" role="presentation" onClick={(evento) => {
+          if (evento.target === evento.currentTarget) {
+            fecharCriadorPromptAssistido();
+          }
+        }}>
+          <div className="modal-shell wide prompt-assistido-modal" role="dialog" aria-modal="true" aria-labelledby="prompt-assistido-modal-title">
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <p style={{ margin: 0, fontSize: '9.5px', textTransform: 'uppercase', fontWeight: 600, color: 'var(--qa-muted)', letterSpacing: '0.5px' }}>Criador de prompt</p>
+                <h3 id="prompt-assistido-modal-title" style={{ margin: '2px 0 0', fontSize: '13px', fontWeight: 700 }}>Criar prompt guiado de teste</h3>
+              </div>
+              <button type="button" className="secondary modal-close icon-button" aria-label="Fechar" onClick={fecharCriadorPromptAssistido}>
+                <IconClose />
+              </button>
+            </div>
+
+            <div className="modal-body prompt-assistido-modal__body">
+              <div className="steps-indicator">
+                <span className={`step-item ${etapaCriadorPrompt === 'parametros' ? 'active' : ''} ${etapaCriadorPrompt === 'contexto' || etapaCriadorPrompt === 'resultado' ? 'completed' : ''}`}>1. Parametros</span>
+                <div className="steps-divider" />
+                <span className={`step-item ${etapaCriadorPrompt === 'contexto' ? 'active' : ''} ${etapaCriadorPrompt === 'resultado' ? 'completed' : ''}`}>2. Contexto</span>
+                <div className="steps-divider" />
+                <span className={`step-item ${etapaCriadorPrompt === 'resultado' ? 'active' : ''}`}>3. Gerar</span>
+              </div>
+
+              {etapaCriadorPrompt === 'parametros' && (
+                <div className="prompt-assistido-grid">
+                  <label>
+                    Tipo de teste
+                    <select value={formCriadorPrompt.tipoTeste} onChange={(evento) => atualizarCriadorPrompt('tipoTeste', evento.target.value as TipoTesteAssistido)}>
+                      {TIPOS_PROMPT_ASSISTIDO.map((tipo) => (
+                        <option key={tipo.id} value={tipo.id}>{tipo.titulo}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {metaTipoPromptAssistido.exigeStack && (
+                    <label>
+                      Stack alvo
+                      <select value={formCriadorPrompt.stack || ''} onChange={(evento) => atualizarCriadorPrompt('stack', evento.target.value as StackTesteAssistido)}>
+                        <option value="backend">Backend</option>
+                        <option value="frontend">Frontend</option>
+                      </select>
+                    </label>
+                  )}
+
+                  <div className="surface-subtle prompt-assistido-callout">
+                    <strong>{metaTipoPromptAssistido.titulo}</strong>
+                    <span>{metaTipoPromptAssistido.descricao}</span>
+                  </div>
+
+                  <label className="prompt-assistido-span-full">
+                    Objetivo do prompt
+                    <textarea
+                      rows={3}
+                      value={formCriadorPrompt.objetivo}
+                      onChange={(evento) => atualizarCriadorPrompt('objetivo', evento.target.value)}
+                      placeholder="Ex.: criar um teste de integração para o fluxo de autenticação com 2FA e múltiplas permissões"
+                    />
+                  </label>
+
+                  <label className="prompt-assistido-span-full">
+                    Contexto adicional
+                    <textarea
+                      rows={4}
+                      value={formCriadorPrompt.contextoAdicional || ''}
+                      onChange={(evento) => atualizarCriadorPrompt('contextoAdicional', evento.target.value)}
+                      placeholder="Descreva riscos, módulos sensíveis, regras de negócio, dependências ou instruções extras para o agente."
+                    />
+                  </label>
+
+                  {estado.ultimoPacoteValidacao ? (
+                    <label className="check-row prompt-assistido-span-full prompt-assistido-toggle">
+                      <input
+                        type="checkbox"
+                        checked={formCriadorPrompt.usarPacoteAtivo}
+                        onChange={(evento) => atualizarCriadorPrompt('usarPacoteAtivo', evento.target.checked)}
+                      />
+                      Aproveitar automaticamente o pacote ativo {estado.ultimoPacoteValidacao.id} como contexto inicial
+                    </label>
+                  ) : (
+                    <div className="inline-alert info prompt-assistido-span-full">
+                      <span>Sem pacote ativo no momento. O criador continua funcionando com os parâmetros manuais.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {etapaCriadorPrompt === 'contexto' && (
+                <div className="prompt-assistido-contexto">
+                  <div className="prompt-assistido-actions">
+                    <button type="button" className="secondary" onClick={() => abrirSeletorPromptAssistido('arquivos')}>
+                      <IconFile />
+                      <span>Selecionar arquivos</span>
+                    </button>
+                    <button type="button" className="secondary" onClick={() => abrirSeletorPromptAssistido('pastas')}>
+                      <IconFolder />
+                      <span>Selecionar pastas</span>
+                    </button>
+                    {busyCriadorPrompt.contexto ? <span className="badge">Carregando contexto...</span> : null}
+                  </div>
+
+                  <label>
+                    Cenários e observações prioritárias
+                    <textarea
+                      rows={5}
+                      value={formCriadorPrompt.cenariosObservacoes || ''}
+                      onChange={(evento) => atualizarCriadorPrompt('cenariosObservacoes', evento.target.value)}
+                      placeholder="Liste cenários críticos, regressões esperadas, observações operacionais e qualquer nota que deva entrar diretamente no prompt final."
+                    />
+                  </label>
+
+                  <div className="prompt-assistido-selection-grid">
+                    <div className="surface-subtle prompt-assistido-selection-card">
+                      <div className="section-heading" style={{ padding: 0 }}>
+                        <div>
+                          <p className="eyebrow">Arquivos</p>
+                          <h4 style={{ margin: 0, fontSize: '12px' }}>Arquivos selecionados</h4>
+                        </div>
+                        <span className="badge">{formCriadorPrompt.arquivosSelecionados.length}</span>
+                      </div>
+                      <div className="prompt-assistido-tags">
+                        {formCriadorPrompt.arquivosSelecionados.length > 0 ? formCriadorPrompt.arquivosSelecionados.map((caminho) => (
+                          <button key={caminho} type="button" className="prompt-assistido-tag" onClick={() => removerSelecaoPromptAssistido('arquivos', caminho)}>
+                            <span>{caminho}</span>
+                            <IconClose />
+                          </button>
+                        )) : <EmptyState texto="Nenhum arquivo selecionado ainda." />}
+                      </div>
+                    </div>
+
+                    <div className="surface-subtle prompt-assistido-selection-card">
+                      <div className="section-heading" style={{ padding: 0 }}>
+                        <div>
+                          <p className="eyebrow">Pastas</p>
+                          <h4 style={{ margin: 0, fontSize: '12px' }}>Pastas selecionadas</h4>
+                        </div>
+                        <span className="badge">{formCriadorPrompt.pastasSelecionadas.length}</span>
+                      </div>
+                      <div className="prompt-assistido-tags">
+                        {formCriadorPrompt.pastasSelecionadas.length > 0 ? formCriadorPrompt.pastasSelecionadas.map((caminho) => (
+                          <button key={caminho} type="button" className="prompt-assistido-tag" onClick={() => removerSelecaoPromptAssistido('pastas', caminho)}>
+                            <span>{caminho}</span>
+                            <IconClose />
+                          </button>
+                        )) : <EmptyState texto="Nenhuma pasta selecionada ainda." />}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="surface-subtle prompt-assistido-browser">
+                    <div className="prompt-assistido-browser__header">
+                      <div>
+                        <p className="eyebrow">Navegador</p>
+                        <h4 style={{ margin: 0, fontSize: '12px' }}>
+                          {seletorPromptAssistido ? `Selecionando ${seletorPromptAssistido.contexto === 'arquivos' ? 'arquivos' : 'pastas'}` : 'Abra um seletor acima'}
+                        </h4>
+                      </div>
+                      {seletorPromptAssistido ? <span className="badge">{seletorPromptAssistido.navegador.entradas.length} itens</span> : null}
+                    </div>
+
+                    {seletorPromptAssistido ? (
+                      <>
+                        <div className="prompt-assistido-browser__path">
+                          <strong>{seletorPromptAssistido.navegador.caminhoRelativo || '.'}</strong>
+                          <div className="prompt-assistido-browser__path-actions">
+                            {caminhoPai(seletorPromptAssistido.navegador.caminhoRelativo) ? (
+                              <button type="button" className="secondary" onClick={() => abrirSeletorPromptAssistido(seletorPromptAssistido.contexto, caminhoPai(seletorPromptAssistido.navegador.caminhoRelativo) || setup.raizCodigo)}>
+                                <IconArrowLeft />
+                                <span>Voltar</span>
+                              </button>
+                            ) : null}
+                            {seletorPromptAssistido.contexto === 'pastas' ? (
+                              <button type="button" className="secondary" onClick={() => alternarSelecaoPromptAssistido('pastas', seletorPromptAssistido.navegador.caminhoRelativo || '.') }>
+                                <IconFolder />
+                                <span>{formCriadorPrompt.pastasSelecionadas.includes(seletorPromptAssistido.navegador.caminhoRelativo || '.') ? 'Remover pasta atual' : 'Selecionar pasta atual'}</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="prompt-assistido-browser__list scroll-region compact">
+                          {seletorPromptAssistido.navegador.entradas.map((entrada) => {
+                            const selecionado = seletorPromptAssistido.contexto === 'arquivos'
+                              ? formCriadorPrompt.arquivosSelecionados.includes(entrada.caminhoRelativo)
+                              : formCriadorPrompt.pastasSelecionadas.includes(entrada.caminhoRelativo);
+
+                            return (
+                              <div key={entrada.caminhoRelativo} className="prompt-assistido-browser__row">
+                                <div className="prompt-assistido-browser__row-main">
+                                  <span>{entrada.tipo === 'pasta' ? <IconFolder /> : <IconFile />}</span>
+                                  <div>
+                                    <strong>{entrada.nome}</strong>
+                                    <span>{entrada.tipo === 'arquivo' ? formatarTamanho(entrada.tamanhoBytes) : 'Pasta do workspace'}</span>
+                                  </div>
+                                </div>
+                                <div className="prompt-assistido-browser__row-actions">
+                                  {entrada.tipo === 'pasta' ? (
+                                    <>
+                                      {seletorPromptAssistido.contexto === 'pastas' ? (
+                                        <button type="button" className="secondary" onClick={() => alternarSelecaoPromptAssistido('pastas', entrada.caminhoRelativo)}>
+                                          <span>{selecionado ? 'Remover' : 'Selecionar'}</span>
+                                        </button>
+                                      ) : null}
+                                      <button type="button" className="secondary" onClick={() => abrirSeletorPromptAssistido(seletorPromptAssistido.contexto, entrada.caminhoRelativo)}>
+                                        <span>Entrar</span>
+                                        <IconChevronRight />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button type="button" className="secondary" onClick={() => alternarSelecaoPromptAssistido('arquivos', entrada.caminhoRelativo)}>
+                                      <span>{selecionado ? 'Remover' : 'Selecionar'}</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="empty-dashed-panel">
+                        <p style={{ margin: 0, fontSize: '11px', color: 'var(--qa-muted)' }}>Escolha arquivos ou pastas acima para navegar dentro do workspace e montar o contexto do prompt.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {etapaCriadorPrompt === 'resultado' && (
+                <div className="prompt-assistido-result">
+                  <div className="preview-grid-summary">
+                    <div className="preview-block">
+                      <h4>Tipo</h4>
+                      <p>{metaTipoPromptAssistido.titulo}</p>
+                    </div>
+                    <div className="preview-block">
+                      <h4>Stack</h4>
+                      <p>{metaTipoPromptAssistido.exigeStack ? formCriadorPrompt.stack || 'Nao definido' : 'Nao aplicavel'}</p>
+                    </div>
+                    <div className="preview-block">
+                      <h4>Arquivos</h4>
+                      <p>{formCriadorPrompt.arquivosSelecionados.length} arquivo(s)</p>
+                    </div>
+                    <div className="preview-block">
+                      <h4>Pastas</h4>
+                      <p>{formCriadorPrompt.pastasSelecionadas.length} pasta(s)</p>
+                    </div>
+                  </div>
+
+                  {busyCriadorPrompt.artefato ? (
+                    <div className="inline-alert info">
+                      <span>Gerando prompt, salvando no workspace, abrindo no editor e copiando o conteúdo...</span>
+                    </div>
+                  ) : null}
+
+                  {resultadoPromptAssistido ? (
+                    <>
+                      <div className="inline-alert success">
+                        <span>Prompt salvo em {resultadoPromptAssistido.caminhoRelativo}.</span>
+                        {resultadoPromptAssistido.copiado ? <strong>Conteúdo copiado.</strong> : null}
+                      </div>
+                      <pre className="mono-block scroll-region compact prompt-assistido-preview">{resultadoPromptAssistido.conteudo}</pre>
+                    </>
+                  ) : (
+                    <div className="surface-subtle prompt-assistido-callout">
+                      <strong>Pronto para gerar</strong>
+                      <span>O QAssistant vai adaptar o template do tipo escolhido com os parâmetros acima, salvar o arquivo na pasta correta de prompts, abrir no editor e copiar o conteúdo para você usar no agente.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer prompt-assistido-footer">
+              <button type="button" className="secondary" onClick={etapaCriadorPrompt === 'parametros' ? fecharCriadorPromptAssistido : voltarCriadorPrompt}>
+                {etapaCriadorPrompt === 'parametros' ? 'Cancelar' : 'Voltar'}
+              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {etapaCriadorPrompt !== 'resultado' ? (
+                  <button type="button" onClick={avancarCriadorPrompt} disabled={etapaCriadorPrompt === 'parametros' ? !podeAvancarCriadorPrompt : false}>
+                    Avançar
+                  </button>
+                ) : resultadoPromptAssistido ? (
+                  <>
+                    <button type="button" className="secondary" onClick={gerarPromptAssistido} disabled={busyCriadorPrompt.artefato || !podeGerarPromptAssistido}>
+                      Gerar novamente
+                    </button>
+                    <button type="button" onClick={fecharCriadorPromptAssistido}>Concluir</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={gerarPromptAssistido} disabled={!podeGerarPromptAssistido || busyCriadorPrompt.artefato}>
+                    {busyCriadorPrompt.artefato ? 'Gerando...' : 'Gerar prompt'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* OVERLAY PORTAL: DETALHES DE TAREFA DO OPENPROJECT */}
       {taskAtiva && (
         <div className="modal-backdrop" role="presentation">
@@ -3270,6 +3789,71 @@ interface EmptyStateProps {
 }
 
 const EmptyState: FC<EmptyStateProps> = ({ texto }) => <p className="empty-state">{texto}</p>;
+
+function obterMetaTipoPromptAssistido(tipo: TipoTesteAssistido): TipoPromptAssistidoMeta {
+  return TIPOS_PROMPT_ASSISTIDO.find((item) => item.id === tipo) || TIPOS_PROMPT_ASSISTIDO[0];
+}
+
+function extrairArquivosSugeridosPacote(estado: EstadoPainel): string[] {
+  const hashesPacote = new Set(estado.ultimoPacoteValidacao?.commits || []);
+  if (hashesPacote.size === 0) return [];
+
+  const arquivos = estado.git.recentes
+    .filter((commit) => hashesPacote.has(commit.hash) || hashesPacote.has(commit.hashCurto))
+    .flatMap((commit) => commit.arquivosAlterados || [])
+    .filter(Boolean);
+
+  return Array.from(new Set(arquivos)).slice(0, 12);
+}
+
+function inferirStackPromptAssistido(arquivos: string[], setup: SetupWorkspace): StackTesteAssistido | undefined {
+  const frontend = (setup.frontend || '').trim();
+  const backend = (setup.backend || '').trim();
+  const arquivosNormalizados = arquivos.map((item) => item.toLowerCase());
+
+  if (frontend && arquivosNormalizados.some((item) => item.startsWith(frontend.toLowerCase()))) {
+    return 'frontend';
+  }
+  if (backend && arquivosNormalizados.some((item) => item.startsWith(backend.toLowerCase()))) {
+    return 'backend';
+  }
+  if (arquivosNormalizados.some((item) => item.includes('medsystem_front') || item.includes('/front') || item.endsWith('.tsx') || item.endsWith('.jsx'))) {
+    return 'frontend';
+  }
+  if (arquivosNormalizados.some((item) => item.includes('medsystem_back') || item.includes('/back') || item.endsWith('.service.ts') || item.endsWith('.service.js'))) {
+    return 'backend';
+  }
+  return undefined;
+}
+
+function criarResumoContextoPacote(resumoQaConteudo?: string): string {
+  const texto = (resumoQaConteudo || '').trim();
+  if (!texto) return '';
+  return texto.length > 900 ? `${texto.slice(0, 900).trimEnd()}\n\n[resumo do pacote truncado para pre-preenchimento]` : texto;
+}
+
+function criarResumoObservacoesPacote(commits: string[]): string {
+  if (!commits.length) return '';
+  return `Commits vinculados ao pacote ativo:\n${commits.slice(0, 10).map((commit) => `- ${commit}`).join('\n')}`;
+}
+
+function sugerirCaminhoInicialSeletorPrompt(
+  contexto: ContextoSeletorPrompt,
+  form: PromptAssistidoTeste,
+  setup: SetupWorkspace,
+  seletor: SeletorPromptAssistidoState | null,
+): string {
+  if (seletor && seletor.contexto === contexto) {
+    return seletor.navegador.caminhoRelativo || setup.raizCodigo || '.';
+  }
+  if (contexto === 'arquivos' && form.arquivosSelecionados.length > 0) {
+    return caminhoPai(form.arquivosSelecionados[0]) || form.arquivosSelecionados[0];
+  }
+  if (contexto === 'pastas' && form.pastasSelecionadas.length > 0) {
+    return form.pastasSelecionadas[0];
+  }
+  return setup.raizCodigo || '.';
+}
 
 function focarSetupOpenProject(atualizarSetup: <K extends keyof SetupWorkspace>(campo: K, valor: SetupWorkspace[K]) => void): void {
   atualizarSetup('openProjectHabilitado', true);

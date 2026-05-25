@@ -81,6 +81,7 @@ Aplicacoes recentes dessas regras:
 - listas resumidas do OpenProject devem reutilizar `.op-task-summary-row`, `.badge-small` e `scroll-region` para evitar nova duplicacao visual.
 - o onboarding inicial deve usar `setup-wizard*`, `setup-step-pill`, `setup-summary-grid`, `setup-checklist-grid` e `setup-inline-help` para manter o primeiro uso compacto e guiado;
 - campos de caminho do setup devem usar `setup-path-picker` e o botao compartilhado de selecao para manter input e picker alinhados no onboarding e na configuracao;
+- o criador guiado de prompt deve reutilizar `modal-backdrop`, `modal-shell`, `steps-indicator`, `preview-grid-summary` e as novas classes `prompt-assistido-*` para manter consistencia entre wizard, browser e preview;
 - a lista de commits do wizard deve usar `commit-list-shell`, `commit-item*` e `commit-repo-badge` para manter padding, densidade e selecao consistentes;
 - o runner embutido da aba principal deve convergir para as primitivas `qa-inline-runner*`, reaproveitando a linguagem de metricas, logs, estados e historico do runner dedicado;
 - modais do OpenProject devem preferir `op-modal-zone*`, `op-comment-card`, `op-summary-box` e `field-stack` em vez de novas superfices inline.
@@ -119,6 +120,7 @@ Regras:
 - empty state: mensagem curta + proxima acao operacional;
 - erro: `.inline-alert.danger` ou `.error-state`, sem texto generico demais;
 - sucesso: `badge` ou `state-chip` sem exagero visual.
+- fluxos com navegador modal devem separar carregamento de contexto e geracao de artefato; nao reutilizar o mesmo estado busy para as duas operacoes.
 
 No primeiro uso:
 

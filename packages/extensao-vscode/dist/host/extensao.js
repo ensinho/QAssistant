@@ -4934,6 +4934,19 @@ var SetupWorkspaceSchema = external_exports.object({
   commitsPadrao: external_exports.number().int().min(1).default(10)
 });
 var CampoDiretorioSetupSchema = external_exports.enum(["raizCodigo", "frontend", "backend"]);
+var TipoTesteAssistidoSchema = external_exports.enum(["unitario", "integracao", "componente", "ponta-a-ponta", "usabilidade", "acessibilidade", "desempenho", "carga"]);
+var StackTesteAssistidoSchema = external_exports.enum(["backend", "frontend"]);
+var ContextoSeletorPromptSchema = external_exports.enum(["arquivos", "pastas"]);
+var PromptAssistidoTesteSchema = external_exports.object({
+  tipoTeste: TipoTesteAssistidoSchema,
+  stack: StackTesteAssistidoSchema.optional(),
+  objetivo: external_exports.string().min(8),
+  contextoAdicional: external_exports.string().optional(),
+  cenariosObservacoes: external_exports.string().optional(),
+  arquivosSelecionados: external_exports.array(external_exports.string().min(1)).default([]),
+  pastasSelecionadas: external_exports.array(external_exports.string().min(1)).default([]),
+  usarPacoteAtivo: external_exports.boolean().default(false)
+});
 var MensagemWebviewParaHostSchema = external_exports.discriminatedUnion("tipo", [
   external_exports.object({ tipo: external_exports.literal("painel.carregado") }),
   external_exports.object({ tipo: external_exports.literal("workspace.inicializar"), setup: SetupWorkspaceSchema }),
@@ -4960,6 +4973,8 @@ var MensagemWebviewParaHostSchema = external_exports.discriminatedUnion("tipo", 
   external_exports.object({ tipo: external_exports.literal("validacao.selecionarPacote"), caminhoRelativo: external_exports.string().min(1) }),
   external_exports.object({ tipo: external_exports.literal("validacao.excluirPacote"), caminhoRelativo: external_exports.string().min(1) }),
   external_exports.object({ tipo: external_exports.literal("testes.executar"), categoria: external_exports.string(), nomeExecucao: external_exports.string().optional() }),
+  external_exports.object({ tipo: external_exports.literal("testes.navegarSeletorPrompt"), contexto: ContextoSeletorPromptSchema, caminhoRelativo: external_exports.string().default(".") }),
+  external_exports.object({ tipo: external_exports.literal("testes.gerarPromptAssistido"), payload: PromptAssistidoTesteSchema }),
   external_exports.object({ tipo: external_exports.literal("testes.limparHistorico") }),
   external_exports.object({ tipo: external_exports.literal("testes.abrirEmAba") }),
   external_exports.object({ tipo: external_exports.literal("testes.fecharAba") }),
@@ -5102,6 +5117,64 @@ var PainelTestesAba = class {
 // src/host/painel/provedor-painel.ts
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
 var OPENPROJECT_URL_PADRAO = "http://openproject.ormel.com.br/";
+var CONFIGURACOES_PROMPT_ASSISTIDO = {
+  unitario: {
+    rotulo: "teste unitario",
+    templateSubPath: "testes-unitarios/prompts/criar-teste-unitario.prompt.md",
+    promptGeradoSubPath: "testes-unitarios/prompts/gerados",
+    exigeStack: true,
+    resolverDestinoTeste: (stack) => `testes-unitarios/${stack || "backend"}/`
+  },
+  integracao: {
+    rotulo: "teste de integracao",
+    templateSubPath: "testes-de-integracao/prompts/criar-teste-integracao.prompt.md",
+    promptGeradoSubPath: "testes-de-integracao/prompts/gerados",
+    exigeStack: true,
+    resolverDestinoTeste: (stack) => `testes-de-integracao/${stack || "backend"}/`
+  },
+  componente: {
+    rotulo: "teste de componente",
+    templateSubPath: "testes-de-componentes/prompts/criar-teste-componente.prompt.md",
+    promptGeradoSubPath: "testes-de-componentes/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-componentes/frontend/"
+  },
+  "ponta-a-ponta": {
+    rotulo: "teste de ponta a ponta",
+    templateSubPath: "testes-de-ponta-a-ponta/prompts/criar-teste-ponta-a-ponta.prompt.md",
+    promptGeradoSubPath: "testes-de-ponta-a-ponta/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-ponta-a-ponta/fluxos/"
+  },
+  usabilidade: {
+    rotulo: "teste de usabilidade",
+    templateSubPath: "testes-de-usabilidade/prompts/criar-teste-usabilidade.prompt.md",
+    promptGeradoSubPath: "testes-de-usabilidade/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-usabilidade/fluxos/"
+  },
+  acessibilidade: {
+    rotulo: "teste de acessibilidade",
+    templateSubPath: "testes-de-acessibilidade/prompts/criar-teste-acessibilidade.prompt.md",
+    promptGeradoSubPath: "testes-de-acessibilidade/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-acessibilidade/fluxos/"
+  },
+  desempenho: {
+    rotulo: "teste de desempenho",
+    templateSubPath: "testes-de-desempenho/prompts/criar-teste-desempenho.prompt.md",
+    promptGeradoSubPath: "testes-de-desempenho/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-desempenho/scripts/"
+  },
+  carga: {
+    rotulo: "teste de carga",
+    templateSubPath: "testes-de-carga/prompts/criar-teste-carga.prompt.md",
+    promptGeradoSubPath: "testes-de-carga/prompts/gerados",
+    exigeStack: false,
+    resolverDestinoTeste: () => "testes-de-carga/scripts/"
+  }
+};
 var ProvedorPainel = class {
   constructor(contexto, saida) {
     this.contexto = contexto;
@@ -5286,6 +5359,12 @@ var ProvedorPainel = class {
           return;
         case "testes.executar":
           await this.executarTestes(resultado.data.categoria, resultado.data.nomeExecucao);
+          return;
+        case "testes.navegarSeletorPrompt":
+          await this.navegarSeletorPrompt(resultado.data.contexto, resultado.data.caminhoRelativo);
+          return;
+        case "testes.gerarPromptAssistido":
+          await this.gerarPromptAssistido(resultado.data.payload);
           return;
         case "testes.limparHistorico":
           this.execucaoTestes.logs = "";
@@ -5554,6 +5633,79 @@ Commits selecionados:
     this.enviar({ tipo: "notificacao.info", mensagem: `Pacote criado com ${commits.length} commit(s) selecionado(s).` });
     await this.atualizar();
     await this.abrirCaminhoWorkspace(`${resultado.caminhoRelativo}/resumo-qa.md`);
+  }
+  async navegarSeletorPrompt(contexto, caminhoRelativo) {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Abra um workspace antes de selecionar arquivos para o prompt." });
+      return;
+    }
+    const configuracao = (0, import_nucleo2.carregarConfiguracaoWorkspace)(raizWorkspace);
+    const caminhoFallback = configuracao?.caminhos.raizCodigo || ".";
+    let caminhoBase = String(caminhoRelativo || "").trim() || caminhoFallback;
+    let caminhoAbsoluto = path.resolve(raizWorkspace, caminhoBase);
+    if (!fs2.existsSync(caminhoAbsoluto)) {
+      caminhoBase = caminhoFallback;
+      caminhoAbsoluto = path.resolve(raizWorkspace, caminhoBase);
+    }
+    if (fs2.existsSync(caminhoAbsoluto) && fs2.statSync(caminhoAbsoluto).isFile()) {
+      caminhoAbsoluto = path.dirname(caminhoAbsoluto);
+    }
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith("..") || path.isAbsolute(relativo)) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Selecione apenas arquivos e pastas dentro do workspace atual." });
+      return;
+    }
+    this.enviar({
+      tipo: "testes.seletorPromptAtualizado",
+      contexto,
+      navegador: this.criarNavegadorPrompt(raizWorkspace, normalizarRelativo(relativo || "."), contexto)
+    });
+  }
+  async gerarPromptAssistido(payload) {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Abra um workspace antes de gerar prompts de teste." });
+      return;
+    }
+    const configuracao = (0, import_nucleo2.carregarConfiguracaoWorkspace)(raizWorkspace);
+    const estrutura = (0, import_nucleo2.inspecionarEstruturaWorkspace)(raizWorkspace);
+    const raizTestes = configuracao?.caminhos.raizTestes || import_nucleo2.RAIZ_TESTES_QASSISTANT;
+    if (!estrutura.qassistantTestesPresente) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Inicialize o workspace do QAssistant antes de gerar prompts guiados." });
+      return;
+    }
+    const configuracaoPrompt = this.obterConfiguracaoPromptAssistido(payload.tipoTeste);
+    if (configuracaoPrompt.exigeStack && !payload.stack) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Escolha se o prompt e para frontend ou backend antes de gerar." });
+      return;
+    }
+    const templateRelPath = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.templateSubPath));
+    const templateAbsPath = path.join(raizWorkspace, templateRelPath);
+    if (!fs2.existsSync(templateAbsPath)) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: `Template base nao encontrado: ${templateRelPath}.` });
+      return;
+    }
+    const templateBase = fs2.readFileSync(templateAbsPath, "utf8").trim();
+    const promptFinal = this.montarPromptAssistido(raizWorkspace, raizTestes, payload, templateBase, configuracaoPrompt);
+    const diretorioSaidaRelativo = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.promptGeradoSubPath));
+    const diretorioSaidaAbsoluto = path.join(raizWorkspace, diretorioSaidaRelativo);
+    fs2.mkdirSync(diretorioSaidaAbsoluto, { recursive: true });
+    const nomeArquivo = `${criarPrefixoPromptAssistido()}-${criarSlugPromptAssistido(payload.objetivo)}.prompt.md`;
+    const caminhoRelativoGerado = normalizarRelativo(path.join(diretorioSaidaRelativo, nomeArquivo));
+    fs2.writeFileSync(path.join(raizWorkspace, caminhoRelativoGerado), promptFinal, "utf8");
+    await vscode3.env.clipboard.writeText(promptFinal);
+    await this.abrirArquivoNoEditor(raizWorkspace, caminhoRelativoGerado);
+    this.enviar({
+      tipo: "testes.promptAssistidoGerado",
+      caminhoRelativo: caminhoRelativoGerado,
+      conteudo: promptFinal,
+      copiado: true
+    });
+    this.enviar({
+      tipo: "notificacao.info",
+      mensagem: `Prompt salvo em ${caminhoRelativoGerado}, aberto no editor e copiado para a area de transferencia.`
+    });
   }
   async carregarCommits(limite, atualizarDepois = true) {
     const raizWorkspace = obterRaizWorkspace();
@@ -5967,6 +6119,205 @@ ${resumoConteudo}`;
         mensagem
       });
     }
+  }
+  obterConfiguracaoPromptAssistido(tipoTeste) {
+    return CONFIGURACOES_PROMPT_ASSISTIDO[tipoTeste];
+  }
+  criarNavegadorPrompt(raizWorkspace, caminhoRelativo, contexto) {
+    const caminhoAbsoluto = path.resolve(raizWorkspace, caminhoRelativo || ".");
+    const entradas = fs2.readdirSync(caminhoAbsoluto, { withFileTypes: true }).filter((entrada) => !this.deveOcultarEntradaPrompt(entrada.name, entrada.isDirectory())).filter((entrada) => contexto === "arquivos" || entrada.isDirectory()).slice(0, 200).map((entrada) => {
+      const absoluto = path.join(caminhoAbsoluto, entrada.name);
+      const stat = fs2.statSync(absoluto);
+      const relativo = normalizarRelativo(path.relative(raizWorkspace, absoluto));
+      return {
+        nome: entrada.name,
+        caminhoRelativo: relativo,
+        tipo: entrada.isDirectory() ? "pasta" : "arquivo",
+        tamanhoBytes: entrada.isDirectory() ? null : stat.size,
+        atualizadoEm: stat.mtime.toISOString()
+      };
+    }).sort((primeira, segunda) => {
+      if (primeira.tipo !== segunda.tipo) return primeira.tipo === "pasta" ? -1 : 1;
+      return primeira.nome.localeCompare(segunda.nome, "pt-BR");
+    });
+    return {
+      caminhoRelativo: normalizarRelativo(caminhoRelativo || "."),
+      entradas,
+      arquivoAberto: null
+    };
+  }
+  deveOcultarEntradaPrompt(nome, diretorio) {
+    const normalizado = nome.toLowerCase();
+    if ([".git", ".qassistant", "node_modules", "dist", "build", "coverage"].includes(normalizado)) {
+      return true;
+    }
+    if (!diretorio && ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"].includes(normalizado)) {
+      return true;
+    }
+    if (!diretorio && (normalizado === ".env" || normalizado.startsWith(".env."))) {
+      return true;
+    }
+    return false;
+  }
+  montarPromptAssistido(raizWorkspace, raizTestes, payload, templateBase, configuracaoPrompt) {
+    const arquivosSelecionados = this.normalizarSelecaoPrompt(raizWorkspace, payload.arquivosSelecionados);
+    const pastasSelecionadas = this.normalizarSelecaoPrompt(raizWorkspace, payload.pastasSelecionadas, true);
+    const arquivosObrigatorios = this.resolverArquivosObrigatoriosPrompt(raizWorkspace, raizTestes);
+    const trechos = this.coletarTrechosArquivosPrompt(raizWorkspace, arquivosSelecionados);
+    const destinoTeste = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.resolverDestinoTeste(payload.stack)));
+    const pacoteAtivo = payload.usarPacoteAtivo && this.ultimoPacoteValidacao ? this.resolverDetalhesPacote(raizWorkspace, this.ultimoPacoteValidacao) : void 0;
+    const blocos = [templateBase, "", "---", "", "## Parametros desta solicitacao", ""];
+    blocos.push(`- Tipo de teste solicitado: ${configuracaoPrompt.rotulo}.`);
+    if (payload.stack) {
+      blocos.push(`- Stack alvo: ${payload.stack}.`);
+    }
+    blocos.push(`- Destino esperado do teste: \`${destinoTeste}\`.`);
+    blocos.push(`- Template base utilizado: \`${normalizarRelativo(path.join(raizTestes, configuracaoPrompt.templateSubPath))}\`.`);
+    blocos.push("");
+    blocos.push("## Objetivo principal");
+    blocos.push(payload.objetivo.trim());
+    blocos.push("");
+    if (payload.contextoAdicional?.trim()) {
+      blocos.push("## Contexto adicional informado");
+      blocos.push(payload.contextoAdicional.trim());
+      blocos.push("");
+    }
+    if (payload.cenariosObservacoes?.trim()) {
+      blocos.push("## Cenarios e observacoes prioritarias");
+      blocos.push(payload.cenariosObservacoes.trim());
+      blocos.push("");
+    }
+    blocos.push("## Arquivos e referencias obrigatorias para leitura");
+    arquivosObrigatorios.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+    blocos.push("");
+    if (pastasSelecionadas.length > 0) {
+      blocos.push("## Pastas selecionadas pelo usuario");
+      pastasSelecionadas.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+      blocos.push("");
+    }
+    if (arquivosSelecionados.length > 0) {
+      blocos.push("## Arquivos selecionados pelo usuario");
+      arquivosSelecionados.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+      blocos.push("");
+    }
+    if (trechos.length > 0) {
+      blocos.push("## Trechos curtos de arquivos selecionados");
+      trechos.forEach((trecho) => {
+        blocos.push(`### ${trecho.caminhoRelativo}`);
+        if (trecho.truncado) {
+          blocos.push("_Trecho truncado automaticamente para manter o prompt enxuto._");
+        }
+        blocos.push("```");
+        blocos.push(trecho.conteudo);
+        blocos.push("```");
+        blocos.push("");
+      });
+    }
+    if (pacoteAtivo) {
+      blocos.push("## Pacote de validacao ativo sugerido automaticamente");
+      blocos.push(`- Pacote: \`${pacoteAtivo.id}\``);
+      if (pacoteAtivo.titulo) {
+        blocos.push(`- Titulo: ${pacoteAtivo.titulo}`);
+      }
+      if (pacoteAtivo.statusCompleto) {
+        blocos.push(`- Status: ${pacoteAtivo.statusCompleto}`);
+      }
+      if (pacoteAtivo.caminhoRelativo) {
+        blocos.push(`- Caminho: \`${pacoteAtivo.caminhoRelativo}\``);
+      }
+      if (pacoteAtivo.commits?.length) {
+        blocos.push(`- Commits vinculados: ${pacoteAtivo.commits.map((commit) => `\`${commit}\``).join(", ")}`);
+      }
+      if (pacoteAtivo.resumoQaConteudo?.trim()) {
+        blocos.push("");
+        blocos.push("### Resumo QA do pacote ativo");
+        blocos.push(limitarTextoPrompt(pacoteAtivo.resumoQaConteudo.trim(), 1800));
+      }
+      blocos.push("");
+    }
+    blocos.push("## Entrega esperada do agente");
+    blocos.push("- Gere ou revise o teste no diretorio correto, preservando a estrutura do QAssistant.");
+    blocos.push("- Nao invente caminhos fora da estrutura documentada.");
+    blocos.push("- Se criar ou reorganizar cobertura real, atualize `Qassistant-testes/mapa-de-testes.yaml` na mesma entrega.");
+    blocos.push("- Se algum arquivo referenciado estiver ausente, explicite isso antes de propor a implementacao.");
+    return blocos.join("\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  }
+  normalizarSelecaoPrompt(raizWorkspace, caminhos, apenasPastas = false) {
+    return Array.from(new Set(
+      caminhos.map((caminho) => String(caminho || "").trim()).filter(Boolean).map((caminho) => path.resolve(raizWorkspace, caminho)).filter((absoluto) => {
+        const relativo = path.relative(raizWorkspace, absoluto);
+        return !(relativo.startsWith("..") || path.isAbsolute(relativo));
+      }).filter((absoluto) => fs2.existsSync(absoluto)).filter((absoluto) => apenasPastas ? fs2.statSync(absoluto).isDirectory() : fs2.statSync(absoluto).isFile()).map((absoluto) => normalizarRelativo(path.relative(raizWorkspace, absoluto)))
+    )).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }
+  resolverArquivosObrigatoriosPrompt(raizWorkspace, raizTestes) {
+    const arquivos = [
+      normalizarRelativo(path.join(raizTestes, "mapa-de-testes.yaml")),
+      normalizarRelativo(path.join(raizTestes, "regras-de-teste.md"))
+    ];
+    const contextoProjeto = ["docs/context/INDEX.md", "docs/contexto/INDEX.md", "docs/contexto/README.md"].find((caminho) => fs2.existsSync(path.join(raizWorkspace, caminho)));
+    if (contextoProjeto) {
+      arquivos.push(contextoProjeto);
+    }
+    arquivos.push(...this.listarArquivosMarkdown(raizWorkspace, ".github/instructions", 12));
+    arquivos.push(...this.listarArquivosMarkdown(raizWorkspace, ".github/skills", 12));
+    return Array.from(new Set(arquivos.filter((caminho) => fs2.existsSync(path.join(raizWorkspace, caminho)))));
+  }
+  listarArquivosMarkdown(raizWorkspace, pastaRelativa, limite) {
+    const pastaAbsoluta = path.join(raizWorkspace, pastaRelativa);
+    if (!fs2.existsSync(pastaAbsoluta) || !fs2.statSync(pastaAbsoluta).isDirectory()) {
+      return [];
+    }
+    const encontrados = [];
+    const pilha = [pastaRelativa];
+    while (pilha.length > 0 && encontrados.length < limite) {
+      const atual = pilha.pop();
+      if (!atual) continue;
+      const atualAbsoluto = path.join(raizWorkspace, atual);
+      const entradas = fs2.readdirSync(atualAbsoluto, { withFileTypes: true }).filter((entrada) => entrada.name !== ".git").sort((primeira, segunda) => primeira.name.localeCompare(segunda.name, "pt-BR"));
+      for (const entrada of entradas) {
+        if (encontrados.length >= limite) break;
+        const rel = normalizarRelativo(path.join(atual, entrada.name));
+        if (entrada.isDirectory()) {
+          pilha.push(rel);
+        } else if (/\.(md|prompt\.md)$/i.test(entrada.name)) {
+          encontrados.push(rel);
+        }
+      }
+    }
+    return encontrados;
+  }
+  coletarTrechosArquivosPrompt(raizWorkspace, arquivosSelecionados) {
+    const trechos = [];
+    let totalCaracteres = 0;
+    for (const caminhoRelativo of arquivosSelecionados) {
+      if (trechos.length >= 5) break;
+      const absoluto = path.join(raizWorkspace, caminhoRelativo);
+      if (!fs2.existsSync(absoluto) || !fs2.statSync(absoluto).isFile()) continue;
+      const conteudo = fs2.readFileSync(absoluto, "utf8");
+      if (!conteudo || conteudo.includes("\0")) continue;
+      const linhas = conteudo.replace(/\r\n/g, "\n").split("\n");
+      let preview = conteudo.trim();
+      let truncado = false;
+      if (preview.length > 5e3 || linhas.length > 120) {
+        preview = linhas.slice(0, 80).join("\n").trim();
+        truncado = true;
+      }
+      if (!preview) continue;
+      if (totalCaracteres + preview.length > 18e3) break;
+      totalCaracteres += preview.length;
+      trechos.push({ caminhoRelativo, conteudo: preview, truncado });
+    }
+    return trechos;
+  }
+  async abrirArquivoNoEditor(raizWorkspace, caminhoRelativo) {
+    const caminhoAbsoluto = path.resolve(raizWorkspace, caminhoRelativo);
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith("..") || path.isAbsolute(relativo)) {
+      throw new Error("Caminho fora do workspace atual.");
+    }
+    const documento = await vscode3.workspace.openTextDocument(vscode3.Uri.file(caminhoAbsoluto));
+    await vscode3.window.showTextDocument(documento, { preview: false });
   }
   async selecionarDiretorioWorkspace(campo, caminhoAtual) {
     const raizWorkspace = obterRaizWorkspace();
@@ -6914,6 +7265,20 @@ function criarNonce2() {
     valor += alfabeto.charAt(Math.floor(Math.random() * alfabeto.length));
   }
   return valor;
+}
+function criarPrefixoPromptAssistido() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+}
+function criarSlugPromptAssistido(texto) {
+  return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "prompt-guiado";
+}
+function limitarTextoPrompt(texto, limite) {
+  if (texto.length <= limite) {
+    return texto;
+  }
+  return `${texto.slice(0, limite).trimEnd()}
+
+_[conteudo truncado automaticamente para manter o prompt revisavel]_`;
 }
 function normalizarRelativo(caminhoRelativo) {
   return caminhoRelativo.split(path.sep).join("/");

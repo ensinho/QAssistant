@@ -17,13 +17,17 @@ import {
 import {
   CommitGitQAssistant,
   CampoDiretorioSetup,
+  ContextoSeletorPrompt,
   criarEstadoInicial,
   EstadoPainel,
   MensagemHostParaWebview,
   MensagemWebviewParaHostSchema,
   NavegadorQAssistant,
+  PromptAssistidoTeste,
   SetupWorkspace,
+  StackTesteAssistido,
   TaskOpenProjectQA,
+  TipoTesteAssistido,
 } from '../../contratos/mensagens';
 import { obterRaizWorkspace } from '../servicos/workspace';
 import { PainelTestesAba } from './painel-testes-aba';
@@ -36,6 +40,79 @@ interface ProjetoOpenProjectResolvido {
   identificador?: string;
   nome: string;
 }
+
+interface ConfiguracaoPromptAssistido {
+  rotulo: string;
+  templateSubPath: string;
+  promptGeradoSubPath: string;
+  exigeStack: boolean;
+  resolverDestinoTeste: (stack?: StackTesteAssistido) => string;
+}
+
+interface TrechoArquivoPromptAssistido {
+  caminhoRelativo: string;
+  conteudo: string;
+  truncado: boolean;
+}
+
+const CONFIGURACOES_PROMPT_ASSISTIDO: Record<TipoTesteAssistido, ConfiguracaoPromptAssistido> = {
+  unitario: {
+    rotulo: 'teste unitario',
+    templateSubPath: 'testes-unitarios/prompts/criar-teste-unitario.prompt.md',
+    promptGeradoSubPath: 'testes-unitarios/prompts/gerados',
+    exigeStack: true,
+    resolverDestinoTeste: (stack) => `testes-unitarios/${stack || 'backend'}/`,
+  },
+  integracao: {
+    rotulo: 'teste de integracao',
+    templateSubPath: 'testes-de-integracao/prompts/criar-teste-integracao.prompt.md',
+    promptGeradoSubPath: 'testes-de-integracao/prompts/gerados',
+    exigeStack: true,
+    resolverDestinoTeste: (stack) => `testes-de-integracao/${stack || 'backend'}/`,
+  },
+  componente: {
+    rotulo: 'teste de componente',
+    templateSubPath: 'testes-de-componentes/prompts/criar-teste-componente.prompt.md',
+    promptGeradoSubPath: 'testes-de-componentes/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-componentes/frontend/',
+  },
+  'ponta-a-ponta': {
+    rotulo: 'teste de ponta a ponta',
+    templateSubPath: 'testes-de-ponta-a-ponta/prompts/criar-teste-ponta-a-ponta.prompt.md',
+    promptGeradoSubPath: 'testes-de-ponta-a-ponta/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-ponta-a-ponta/fluxos/',
+  },
+  usabilidade: {
+    rotulo: 'teste de usabilidade',
+    templateSubPath: 'testes-de-usabilidade/prompts/criar-teste-usabilidade.prompt.md',
+    promptGeradoSubPath: 'testes-de-usabilidade/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-usabilidade/fluxos/',
+  },
+  acessibilidade: {
+    rotulo: 'teste de acessibilidade',
+    templateSubPath: 'testes-de-acessibilidade/prompts/criar-teste-acessibilidade.prompt.md',
+    promptGeradoSubPath: 'testes-de-acessibilidade/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-acessibilidade/fluxos/',
+  },
+  desempenho: {
+    rotulo: 'teste de desempenho',
+    templateSubPath: 'testes-de-desempenho/prompts/criar-teste-desempenho.prompt.md',
+    promptGeradoSubPath: 'testes-de-desempenho/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-desempenho/scripts/',
+  },
+  carga: {
+    rotulo: 'teste de carga',
+    templateSubPath: 'testes-de-carga/prompts/criar-teste-carga.prompt.md',
+    promptGeradoSubPath: 'testes-de-carga/prompts/gerados',
+    exigeStack: false,
+    resolverDestinoTeste: () => 'testes-de-carga/scripts/',
+  },
+};
 
 export class ProvedorPainel implements vscode.WebviewViewProvider {
   static readonly viewType = 'qassistant.painel';
@@ -230,6 +307,12 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
           return;
         case 'testes.executar':
           await this.executarTestes(resultado.data.categoria, resultado.data.nomeExecucao);
+          return;
+        case 'testes.navegarSeletorPrompt':
+          await this.navegarSeletorPrompt(resultado.data.contexto, resultado.data.caminhoRelativo);
+          return;
+        case 'testes.gerarPromptAssistido':
+          await this.gerarPromptAssistido(resultado.data.payload);
           return;
         case 'testes.limparHistorico':
           // Reset only the current execution UI — history persists on disk
@@ -519,6 +602,93 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     this.enviar({ tipo: 'notificacao.info', mensagem: `Pacote criado com ${commits.length} commit(s) selecionado(s).` });
     await this.atualizar();
     await this.abrirCaminhoWorkspace(`${resultado.caminhoRelativo}/resumo-qa.md`);
+  }
+
+  private async navegarSeletorPrompt(contexto: ContextoSeletorPrompt, caminhoRelativo: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Abra um workspace antes de selecionar arquivos para o prompt.' });
+      return;
+    }
+
+    const configuracao = carregarConfiguracaoWorkspace(raizWorkspace);
+    const caminhoFallback = configuracao?.caminhos.raizCodigo || '.';
+    let caminhoBase = String(caminhoRelativo || '').trim() || caminhoFallback;
+    let caminhoAbsoluto = path.resolve(raizWorkspace, caminhoBase);
+
+    if (!fs.existsSync(caminhoAbsoluto)) {
+      caminhoBase = caminhoFallback;
+      caminhoAbsoluto = path.resolve(raizWorkspace, caminhoBase);
+    }
+
+    if (fs.existsSync(caminhoAbsoluto) && fs.statSync(caminhoAbsoluto).isFile()) {
+      caminhoAbsoluto = path.dirname(caminhoAbsoluto);
+    }
+
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith('..') || path.isAbsolute(relativo)) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Selecione apenas arquivos e pastas dentro do workspace atual.' });
+      return;
+    }
+
+    this.enviar({
+      tipo: 'testes.seletorPromptAtualizado',
+      contexto,
+      navegador: this.criarNavegadorPrompt(raizWorkspace, normalizarRelativo(relativo || '.'), contexto),
+    });
+  }
+
+  private async gerarPromptAssistido(payload: PromptAssistidoTeste): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Abra um workspace antes de gerar prompts de teste.' });
+      return;
+    }
+
+    const configuracao = carregarConfiguracaoWorkspace(raizWorkspace);
+    const estrutura = inspecionarEstruturaWorkspace(raizWorkspace);
+    const raizTestes = configuracao?.caminhos.raizTestes || RAIZ_TESTES_QASSISTANT;
+    if (!estrutura.qassistantTestesPresente) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Inicialize o workspace do QAssistant antes de gerar prompts guiados.' });
+      return;
+    }
+
+    const configuracaoPrompt = this.obterConfiguracaoPromptAssistido(payload.tipoTeste);
+    if (configuracaoPrompt.exigeStack && !payload.stack) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Escolha se o prompt e para frontend ou backend antes de gerar.' });
+      return;
+    }
+
+    const templateRelPath = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.templateSubPath));
+    const templateAbsPath = path.join(raizWorkspace, templateRelPath);
+    if (!fs.existsSync(templateAbsPath)) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Template base nao encontrado: ${templateRelPath}.` });
+      return;
+    }
+
+    const templateBase = fs.readFileSync(templateAbsPath, 'utf8').trim();
+    const promptFinal = this.montarPromptAssistido(raizWorkspace, raizTestes, payload, templateBase, configuracaoPrompt);
+    const diretorioSaidaRelativo = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.promptGeradoSubPath));
+    const diretorioSaidaAbsoluto = path.join(raizWorkspace, diretorioSaidaRelativo);
+    fs.mkdirSync(diretorioSaidaAbsoluto, { recursive: true });
+
+    const nomeArquivo = `${criarPrefixoPromptAssistido()}-${criarSlugPromptAssistido(payload.objetivo)}.prompt.md`;
+    const caminhoRelativoGerado = normalizarRelativo(path.join(diretorioSaidaRelativo, nomeArquivo));
+    fs.writeFileSync(path.join(raizWorkspace, caminhoRelativoGerado), promptFinal, 'utf8');
+
+    await vscode.env.clipboard.writeText(promptFinal);
+    await this.abrirArquivoNoEditor(raizWorkspace, caminhoRelativoGerado);
+
+    this.enviar({
+      tipo: 'testes.promptAssistidoGerado',
+      caminhoRelativo: caminhoRelativoGerado,
+      conteudo: promptFinal,
+      copiado: true,
+    });
+    this.enviar({
+      tipo: 'notificacao.info',
+      mensagem: `Prompt salvo em ${caminhoRelativoGerado}, aberto no editor e copiado para a area de transferencia.`,
+    });
   }
 
   private async carregarCommits(limite: number, atualizarDepois = true): Promise<void> {
@@ -1026,6 +1196,261 @@ ${resumoConteudo}`;
         mensagem,
       });
     }
+  }
+
+  private obterConfiguracaoPromptAssistido(tipoTeste: TipoTesteAssistido): ConfiguracaoPromptAssistido {
+    return CONFIGURACOES_PROMPT_ASSISTIDO[tipoTeste];
+  }
+
+  private criarNavegadorPrompt(raizWorkspace: string, caminhoRelativo: string, contexto: ContextoSeletorPrompt): NavegadorQAssistant {
+    const caminhoAbsoluto = path.resolve(raizWorkspace, caminhoRelativo || '.');
+    const entradas = fs.readdirSync(caminhoAbsoluto, { withFileTypes: true })
+      .filter((entrada) => !this.deveOcultarEntradaPrompt(entrada.name, entrada.isDirectory()))
+      .filter((entrada) => contexto === 'arquivos' || entrada.isDirectory())
+      .slice(0, 200)
+      .map((entrada) => {
+        const absoluto = path.join(caminhoAbsoluto, entrada.name);
+        const stat = fs.statSync(absoluto);
+        const relativo = normalizarRelativo(path.relative(raizWorkspace, absoluto));
+        return {
+          nome: entrada.name,
+          caminhoRelativo: relativo,
+          tipo: entrada.isDirectory() ? 'pasta' as const : 'arquivo' as const,
+          tamanhoBytes: entrada.isDirectory() ? null : stat.size,
+          atualizadoEm: stat.mtime.toISOString(),
+        };
+      })
+      .sort((primeira, segunda) => {
+        if (primeira.tipo !== segunda.tipo) return primeira.tipo === 'pasta' ? -1 : 1;
+        return primeira.nome.localeCompare(segunda.nome, 'pt-BR');
+      });
+
+    return {
+      caminhoRelativo: normalizarRelativo(caminhoRelativo || '.'),
+      entradas,
+      arquivoAberto: null,
+    };
+  }
+
+  private deveOcultarEntradaPrompt(nome: string, diretorio: boolean): boolean {
+    const normalizado = nome.toLowerCase();
+    if (['.git', '.qassistant', 'node_modules', 'dist', 'build', 'coverage'].includes(normalizado)) {
+      return true;
+    }
+    if (!diretorio && ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb'].includes(normalizado)) {
+      return true;
+    }
+    if (!diretorio && (normalizado === '.env' || normalizado.startsWith('.env.'))) {
+      return true;
+    }
+    return false;
+  }
+
+  private montarPromptAssistido(
+    raizWorkspace: string,
+    raizTestes: string,
+    payload: PromptAssistidoTeste,
+    templateBase: string,
+    configuracaoPrompt: ConfiguracaoPromptAssistido,
+  ): string {
+    const arquivosSelecionados = this.normalizarSelecaoPrompt(raizWorkspace, payload.arquivosSelecionados);
+    const pastasSelecionadas = this.normalizarSelecaoPrompt(raizWorkspace, payload.pastasSelecionadas, true);
+    const arquivosObrigatorios = this.resolverArquivosObrigatoriosPrompt(raizWorkspace, raizTestes);
+    const trechos = this.coletarTrechosArquivosPrompt(raizWorkspace, arquivosSelecionados);
+    const destinoTeste = normalizarRelativo(path.join(raizTestes, configuracaoPrompt.resolverDestinoTeste(payload.stack)));
+    const pacoteAtivo = payload.usarPacoteAtivo && this.ultimoPacoteValidacao
+      ? this.resolverDetalhesPacote(raizWorkspace, this.ultimoPacoteValidacao)
+      : undefined;
+
+    const blocos: string[] = [templateBase, '', '---', '', '## Parametros desta solicitacao', ''];
+    blocos.push(`- Tipo de teste solicitado: ${configuracaoPrompt.rotulo}.`);
+    if (payload.stack) {
+      blocos.push(`- Stack alvo: ${payload.stack}.`);
+    }
+    blocos.push(`- Destino esperado do teste: \`${destinoTeste}\`.`);
+    blocos.push(`- Template base utilizado: \`${normalizarRelativo(path.join(raizTestes, configuracaoPrompt.templateSubPath))}\`.`);
+    blocos.push('');
+    blocos.push('## Objetivo principal');
+    blocos.push(payload.objetivo.trim());
+    blocos.push('');
+
+    if (payload.contextoAdicional?.trim()) {
+      blocos.push('## Contexto adicional informado');
+      blocos.push(payload.contextoAdicional.trim());
+      blocos.push('');
+    }
+
+    if (payload.cenariosObservacoes?.trim()) {
+      blocos.push('## Cenarios e observacoes prioritarias');
+      blocos.push(payload.cenariosObservacoes.trim());
+      blocos.push('');
+    }
+
+    blocos.push('## Arquivos e referencias obrigatorias para leitura');
+    arquivosObrigatorios.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+    blocos.push('');
+
+    if (pastasSelecionadas.length > 0) {
+      blocos.push('## Pastas selecionadas pelo usuario');
+      pastasSelecionadas.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+      blocos.push('');
+    }
+
+    if (arquivosSelecionados.length > 0) {
+      blocos.push('## Arquivos selecionados pelo usuario');
+      arquivosSelecionados.forEach((caminho) => blocos.push(`- \`${caminho}\``));
+      blocos.push('');
+    }
+
+    if (trechos.length > 0) {
+      blocos.push('## Trechos curtos de arquivos selecionados');
+      trechos.forEach((trecho) => {
+        blocos.push(`### ${trecho.caminhoRelativo}`);
+        if (trecho.truncado) {
+          blocos.push('_Trecho truncado automaticamente para manter o prompt enxuto._');
+        }
+        blocos.push('```');
+        blocos.push(trecho.conteudo);
+        blocos.push('```');
+        blocos.push('');
+      });
+    }
+
+    if (pacoteAtivo) {
+      blocos.push('## Pacote de validacao ativo sugerido automaticamente');
+      blocos.push(`- Pacote: \`${pacoteAtivo.id}\``);
+      if (pacoteAtivo.titulo) {
+        blocos.push(`- Titulo: ${pacoteAtivo.titulo}`);
+      }
+      if (pacoteAtivo.statusCompleto) {
+        blocos.push(`- Status: ${pacoteAtivo.statusCompleto}`);
+      }
+      if (pacoteAtivo.caminhoRelativo) {
+        blocos.push(`- Caminho: \`${pacoteAtivo.caminhoRelativo}\``);
+      }
+      if (pacoteAtivo.commits?.length) {
+        blocos.push(`- Commits vinculados: ${pacoteAtivo.commits.map((commit) => `\`${commit}\``).join(', ')}`);
+      }
+      if (pacoteAtivo.resumoQaConteudo?.trim()) {
+        blocos.push('');
+        blocos.push('### Resumo QA do pacote ativo');
+        blocos.push(limitarTextoPrompt(pacoteAtivo.resumoQaConteudo.trim(), 1800));
+      }
+      blocos.push('');
+    }
+
+    blocos.push('## Entrega esperada do agente');
+    blocos.push('- Gere ou revise o teste no diretorio correto, preservando a estrutura do QAssistant.');
+    blocos.push('- Nao invente caminhos fora da estrutura documentada.');
+    blocos.push('- Se criar ou reorganizar cobertura real, atualize `Qassistant-testes/mapa-de-testes.yaml` na mesma entrega.');
+    blocos.push('- Se algum arquivo referenciado estiver ausente, explicite isso antes de propor a implementacao.');
+
+    return blocos.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+
+  private normalizarSelecaoPrompt(raizWorkspace: string, caminhos: string[], apenasPastas = false): string[] {
+    return Array.from(new Set(
+      caminhos
+        .map((caminho) => String(caminho || '').trim())
+        .filter(Boolean)
+        .map((caminho) => path.resolve(raizWorkspace, caminho))
+        .filter((absoluto) => {
+          const relativo = path.relative(raizWorkspace, absoluto);
+          return !(relativo.startsWith('..') || path.isAbsolute(relativo));
+        })
+        .filter((absoluto) => fs.existsSync(absoluto))
+        .filter((absoluto) => apenasPastas ? fs.statSync(absoluto).isDirectory() : fs.statSync(absoluto).isFile())
+        .map((absoluto) => normalizarRelativo(path.relative(raizWorkspace, absoluto))),
+    )).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }
+
+  private resolverArquivosObrigatoriosPrompt(raizWorkspace: string, raizTestes: string): string[] {
+    const arquivos = [
+      normalizarRelativo(path.join(raizTestes, 'mapa-de-testes.yaml')),
+      normalizarRelativo(path.join(raizTestes, 'regras-de-teste.md')),
+    ];
+
+    const contextoProjeto = ['docs/context/INDEX.md', 'docs/contexto/INDEX.md', 'docs/contexto/README.md']
+      .find((caminho) => fs.existsSync(path.join(raizWorkspace, caminho)));
+    if (contextoProjeto) {
+      arquivos.push(contextoProjeto);
+    }
+
+    arquivos.push(...this.listarArquivosMarkdown(raizWorkspace, '.github/instructions', 12));
+    arquivos.push(...this.listarArquivosMarkdown(raizWorkspace, '.github/skills', 12));
+
+    return Array.from(new Set(arquivos.filter((caminho) => fs.existsSync(path.join(raizWorkspace, caminho)))));
+  }
+
+  private listarArquivosMarkdown(raizWorkspace: string, pastaRelativa: string, limite: number): string[] {
+    const pastaAbsoluta = path.join(raizWorkspace, pastaRelativa);
+    if (!fs.existsSync(pastaAbsoluta) || !fs.statSync(pastaAbsoluta).isDirectory()) {
+      return [];
+    }
+
+    const encontrados: string[] = [];
+    const pilha = [pastaRelativa];
+    while (pilha.length > 0 && encontrados.length < limite) {
+      const atual = pilha.pop();
+      if (!atual) continue;
+      const atualAbsoluto = path.join(raizWorkspace, atual);
+      const entradas = fs.readdirSync(atualAbsoluto, { withFileTypes: true })
+        .filter((entrada) => entrada.name !== '.git')
+        .sort((primeira, segunda) => primeira.name.localeCompare(segunda.name, 'pt-BR'));
+
+      for (const entrada of entradas) {
+        if (encontrados.length >= limite) break;
+        const rel = normalizarRelativo(path.join(atual, entrada.name));
+        if (entrada.isDirectory()) {
+          pilha.push(rel);
+        } else if (/\.(md|prompt\.md)$/i.test(entrada.name)) {
+          encontrados.push(rel);
+        }
+      }
+    }
+
+    return encontrados;
+  }
+
+  private coletarTrechosArquivosPrompt(raizWorkspace: string, arquivosSelecionados: string[]): TrechoArquivoPromptAssistido[] {
+    const trechos: TrechoArquivoPromptAssistido[] = [];
+    let totalCaracteres = 0;
+
+    for (const caminhoRelativo of arquivosSelecionados) {
+      if (trechos.length >= 5) break;
+      const absoluto = path.join(raizWorkspace, caminhoRelativo);
+      if (!fs.existsSync(absoluto) || !fs.statSync(absoluto).isFile()) continue;
+
+      const conteudo = fs.readFileSync(absoluto, 'utf8');
+      if (!conteudo || conteudo.includes('\u0000')) continue;
+
+      const linhas = conteudo.replace(/\r\n/g, '\n').split('\n');
+      let preview = conteudo.trim();
+      let truncado = false;
+      if (preview.length > 5000 || linhas.length > 120) {
+        preview = linhas.slice(0, 80).join('\n').trim();
+        truncado = true;
+      }
+
+      if (!preview) continue;
+      if (totalCaracteres + preview.length > 18000) break;
+
+      totalCaracteres += preview.length;
+      trechos.push({ caminhoRelativo, conteudo: preview, truncado });
+    }
+
+    return trechos;
+  }
+
+  private async abrirArquivoNoEditor(raizWorkspace: string, caminhoRelativo: string): Promise<void> {
+    const caminhoAbsoluto = path.resolve(raizWorkspace, caminhoRelativo);
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith('..') || path.isAbsolute(relativo)) {
+      throw new Error('Caminho fora do workspace atual.');
+    }
+
+    const documento = await vscode.workspace.openTextDocument(vscode.Uri.file(caminhoAbsoluto));
+    await vscode.window.showTextDocument(documento, { preview: false });
   }
 
   private async selecionarDiretorioWorkspace(campo: CampoDiretorioSetup, caminhoAtual?: string): Promise<void> {
@@ -2140,6 +2565,27 @@ function criarNonce(): string {
     valor += alfabeto.charAt(Math.floor(Math.random() * alfabeto.length));
   }
   return valor;
+}
+
+function criarPrefixoPromptAssistido(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function criarSlugPromptAssistido(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'prompt-guiado';
+}
+
+function limitarTextoPrompt(texto: string, limite: number): string {
+  if (texto.length <= limite) {
+    return texto;
+  }
+  return `${texto.slice(0, limite).trimEnd()}\n\n_[conteudo truncado automaticamente para manter o prompt revisavel]_`;
 }
 
 function normalizarRelativo(caminhoRelativo: string): string {
