@@ -35,7 +35,7 @@ export function criarConfiguracaoPadrao(raizWorkspace: string): ConfiguracaoQAss
       raizContexto: RAIZ_CONTEXTO_PROJETO,
     },
     openProject: {
-      habilitado: false,
+      habilitado: true,
       intervaloPollingSegundos: 60,
     },
     resumos: {

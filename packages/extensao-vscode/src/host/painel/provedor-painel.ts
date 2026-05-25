@@ -16,6 +16,7 @@ import {
 } from '@qassistant/nucleo';
 import {
   CommitGitQAssistant,
+  CampoDiretorioSetup,
   criarEstadoInicial,
   EstadoPainel,
   MensagemHostParaWebview,
@@ -28,6 +29,13 @@ import { obterRaizWorkspace } from '../servicos/workspace';
 import { PainelTestesAba } from './painel-testes-aba';
 
 const execFileAsync = promisify(execFile);
+const OPENPROJECT_URL_PADRAO = 'http://openproject.ormel.com.br/';
+
+interface ProjetoOpenProjectResolvido {
+  apiHref: string;
+  identificador?: string;
+  nome: string;
+}
 
 export class ProvedorPainel implements vscode.WebviewViewProvider {
   static readonly viewType = 'qassistant.painel';
@@ -149,6 +157,9 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
         case 'workspace.abrirCaminho':
           await this.abrirCaminhoWorkspace(resultado.data.caminhoRelativo);
           return;
+        case 'workspace.selecionarDiretorio':
+          await this.selecionarDiretorioWorkspace(resultado.data.campo, resultado.data.caminhoAtual);
+          return;
         case 'validacao.criarRascunho':
           await this.criarPacoteValidacaoRascunho(resultado.data.titulo);
           return;
@@ -172,6 +183,9 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
           return;
         case 'openproject.obterDetalhes':
           await this.obterDetalhesOpenProject(resultado.data.taskId);
+          return;
+        case 'openproject.validarConexao':
+          await this.validarConexaoOpenProject(resultado.data.urlBase, resultado.data.projetoRef, resultado.data.token);
           return;
         case 'config.salvarChaveGemini':
           await this.salvarChaveGemini(resultado.data.chave);
@@ -863,11 +877,198 @@ ${resumoConteudo}`;
   }
 
   private obterBaseUrlOpenProject(configuracao?: any): string {
-    let url = configuracao?.openProject?.urlBase || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || 'https://openproject.ormel.com.br';
+    let url = configuracao?.openProject?.urlBase || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || OPENPROJECT_URL_PADRAO;
     if (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
     }
     return url;
+  }
+
+  private criarAuthOpenProject(apiKey: string): string {
+    return Buffer.from(`apikey:${apiKey}`).toString('base64');
+  }
+
+  private async buscarProjetoOpenProject(baseUrl: string, rawAuth: string, referencia: string): Promise<any | null> {
+    const url = `${baseUrl}/api/v3/projects/${encodeURIComponent(referencia)}`;
+    const resposta = await fetch(url, {
+      headers: { Authorization: `Basic ${rawAuth}`, Accept: 'application/hal+json' },
+    });
+    if (resposta.status === 404) {
+      return null;
+    }
+    if (!resposta.ok) {
+      throw new Error(`OpenProject retornou status ${resposta.status}: ${resposta.statusText}`);
+    }
+    return resposta.json();
+  }
+
+  private async listarProjetosOpenProjectDisponiveis(baseUrl: string, rawAuth: string): Promise<ProjetoOpenProjectResolvido[]> {
+    const listaUrl = `${baseUrl}/api/v3/projects?pageSize=200`;
+    const resposta = await fetch(listaUrl, {
+      headers: { Authorization: `Basic ${rawAuth}`, Accept: 'application/hal+json' },
+    });
+
+    if (!resposta.ok) {
+      throw new Error(`OpenProject retornou status ${resposta.status}: ${resposta.statusText}`);
+    }
+
+    const data = await resposta.json() as any;
+    const projetos = ((data?._embedded?.elements as any[]) || [])
+      .map((item) => this.mapearProjetoOpenProject(item, String(item?.identifier || item?.name || 'projeto')))
+      .filter((item) => Boolean(item.identificador || item.nome))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+    return projetos;
+  }
+
+  private normalizarTextoBusca(valor: string): string {
+    return valor
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  private mapearProjetoOpenProject(projeto: any, referenciaFallback: string): ProjetoOpenProjectResolvido {
+    const apiHref = String(projeto?._links?.self?.href || '').trim() || `/api/v3/projects/${encodeURIComponent(referenciaFallback)}`;
+    const identificadorBruto = String(projeto?.identifier || '').trim();
+    const identificadorHref = apiHref.split('/').filter(Boolean).pop();
+    return {
+      apiHref,
+      identificador: identificadorBruto || identificadorHref,
+      nome: String(projeto?.name || identificadorBruto || referenciaFallback).trim() || referenciaFallback,
+    };
+  }
+
+  private async resolverProjetoOpenProject(baseUrl: string, rawAuth: string, referenciaInformada?: string): Promise<ProjetoOpenProjectResolvido> {
+    const referencia = String(referenciaInformada || 'medsystem').trim() || 'medsystem';
+    const projetoDireto = await this.buscarProjetoOpenProject(baseUrl, rawAuth, referencia);
+    if (projetoDireto) {
+      return this.mapearProjetoOpenProject(projetoDireto, referencia);
+    }
+
+    const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
+    const referenciaNormalizada = this.normalizarTextoBusca(referencia);
+    const projeto = projetos.find((item) => {
+      const nome = this.normalizarTextoBusca(item.nome);
+      const identificador = this.normalizarTextoBusca(String(item.identificador || ''));
+      return nome === referenciaNormalizada || identificador === referenciaNormalizada;
+    });
+
+    if (!projeto) {
+      throw new Error(`Projeto "${referencia}" não encontrado no OpenProject. Use o nome exibido no projeto ou o identificador atual.`);
+    }
+
+    return projeto;
+  }
+
+  private montarUrlWebTaskOpenProject(baseUrl: string, projeto: ProjetoOpenProjectResolvido, taskId: string): string {
+    if (projeto.identificador) {
+      return `${baseUrl}/projects/${projeto.identificador}/work_packages/${taskId}`;
+    }
+    return `${baseUrl}/work_packages/${taskId}`;
+  }
+
+  private async validarConexaoOpenProject(urlBase: string, projetoRef?: string, tokenInformado?: string): Promise<void> {
+    const baseUrl = this.obterBaseUrlOpenProject({ openProject: { urlBase } });
+    const apiKey = String(tokenInformado || '').trim() || await this.obterChaveOpenProject();
+
+    if (!apiKey) {
+      this.enviar({
+        tipo: 'openproject.validacaoConcluida',
+        sucesso: false,
+        mensagem: 'Informe um token para validar a conexão com o OpenProject.',
+      });
+      return;
+    }
+
+    try {
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const usuarioResposta = await fetch(`${baseUrl}/api/v3/users/me`, {
+        headers: { Authorization: `Basic ${rawAuth}`, Accept: 'application/hal+json' },
+      });
+
+      if (!usuarioResposta.ok) {
+        throw new Error('Token inválido ou sem acesso ao OpenProject informado.');
+      }
+
+      const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
+      const projeto = projetoRef?.trim()
+        ? await this.resolverProjetoOpenProject(baseUrl, rawAuth, projetoRef)
+        : undefined;
+
+      if (tokenInformado?.trim()) {
+        await this.contexto.secrets.store('qassistant.openProjectApiKey', tokenInformado.trim());
+        this.openProjectKeyPresente = true;
+      }
+
+      this.enviar({
+        tipo: 'openproject.validacaoConcluida',
+        sucesso: true,
+        mensagem: projeto
+          ? `Conexão validada com sucesso para o projeto ${projeto.nome}.`
+          : projetos.length > 0
+            ? `Conexão validada com sucesso. ${projetos.length} projeto(s) disponível(is) para seleção.`
+            : 'Conexão validada com sucesso, mas este token não retornou projetos visíveis para seleção.',
+        projeto: projeto ? { nome: projeto.nome, identificador: projeto.identificador } : undefined,
+        projetosDisponiveis: projetos.map((item) => ({
+          nome: item.nome,
+          identificador: item.identificador || item.nome,
+        })),
+      });
+
+      await this.atualizar();
+    } catch (err) {
+      const mensagem = err instanceof Error ? err.message : String(err);
+      this.enviar({
+        tipo: 'openproject.validacaoConcluida',
+        sucesso: false,
+        mensagem,
+      });
+    }
+  }
+
+  private async selecionarDiretorioWorkspace(campo: CampoDiretorioSetup, caminhoAtual?: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Abra um workspace antes de selecionar diretórios.' });
+      return;
+    }
+
+    const caminhoInformado = String(caminhoAtual || '').trim();
+    const defaultUri = caminhoInformado
+      ? vscode.Uri.file(path.resolve(raizWorkspace, caminhoInformado))
+      : vscode.Uri.file(raizWorkspace);
+
+    const selecao = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri,
+      openLabel: 'Selecionar pasta',
+      title: campo === 'raizCodigo'
+        ? 'Selecionar pasta principal do código'
+        : campo === 'frontend'
+          ? 'Selecionar pasta do frontend'
+          : 'Selecionar pasta do backend',
+    });
+
+    if (!selecao || selecao.length === 0) {
+      return;
+    }
+
+    const caminhoAbsoluto = selecao[0].fsPath;
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith('..') || path.isAbsolute(relativo)) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Selecione uma pasta que esteja dentro do workspace atual.' });
+      return;
+    }
+
+    this.enviar({
+      tipo: 'workspace.diretorioSelecionado',
+      campo,
+      caminho: normalizarRelativo(relativo || '.'),
+    });
   }
 
   private async publicarTaskOpenProject(rascunhoCaminho: string, taskId?: string): Promise<void> {
@@ -887,7 +1088,6 @@ ${resumoConteudo}`;
       const apiKey = await this.obterChaveOpenProject();
       const configuracao = carregarConfiguracaoWorkspace(raizWorkspace);
       const baseUrl = this.obterBaseUrlOpenProject(configuracao);
-      const projetoId = configuracao?.openProject?.projetoId || 'medsystem';
 
       if (!apiKey) {
         throw new Error('Configure a OpenProject API Key na aba Configuração do QAssistant, ou defina PROJECT_AI_OPENPROJECT_API_KEY no ambiente.');
@@ -899,7 +1099,8 @@ ${resumoConteudo}`;
       // Decidir se cria nova ou atualiza existente
       const idExistente = taskId || '';
 
-      const rawAuth = Buffer.from(`apikey:${apiKey}`).toString('base64');
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const projeto = await this.resolverProjetoOpenProject(baseUrl, rawAuth, configuracao?.openProject?.projetoId);
 
       if (idExistente) {
         this.saida.appendLine(`Atualizando task existente de ID ${idExistente}`);
@@ -934,7 +1135,7 @@ ${resumoConteudo}`;
         // Atualizar YAML local
         let yamlContent = fs.readFileSync(pacoteYamlPath, 'utf8');
         yamlContent = yamlContent.replace(/taskId: .*/, `taskId: "${idExistente}"`);
-        yamlContent = yamlContent.replace(/url: .*/, `url: "${baseUrl}/projects/${projetoId}/work_packages/${idExistente}"`);
+        yamlContent = yamlContent.replace(/url: .*/, `url: "${this.montarUrlWebTaskOpenProject(baseUrl, projeto, String(idExistente))}"`);
         fs.writeFileSync(pacoteYamlPath, yamlContent, 'utf8');
 
         // Gravar auditoria
@@ -945,8 +1146,8 @@ ${resumoConteudo}`;
 
         this.enviar({ tipo: 'notificacao.info', mensagem: `Task #${idExistente} atualizada com sucesso no OpenProject!` });
       } else {
-        this.saida.appendLine(`Criando nova task no OpenProject no projeto: ${projetoId}`);
-        const createRes = await fetch(`${baseUrl}/api/v3/projects/${projetoId}/work_packages`, {
+        this.saida.appendLine(`Criando nova task no OpenProject no projeto: ${projeto.nome}`);
+        const createRes = await fetch(`${baseUrl}${projeto.apiHref}/work_packages`, {
           method: 'POST',
           headers: {
             'Authorization': `Basic ${rawAuth}`,
@@ -973,7 +1174,7 @@ ${resumoConteudo}`;
         // Atualizar YAML local
         let yamlContent = fs.readFileSync(pacoteYamlPath, 'utf8');
         yamlContent = yamlContent.replace(/taskId: .*/, `taskId: "${novaId}"`);
-        yamlContent = yamlContent.replace(/url: .*/, `url: "${baseUrl}/projects/${projetoId}/work_packages/${novaId}"`);
+        yamlContent = yamlContent.replace(/url: .*/, `url: "${this.montarUrlWebTaskOpenProject(baseUrl, projeto, String(novaId))}"`);
         fs.writeFileSync(pacoteYamlPath, yamlContent, 'utf8');
 
         // Gravar auditoria
@@ -1402,10 +1603,9 @@ ${logsSnippet || '(Sem logs)'}
         return;
       }
 
-      const projetoId = configuracao?.openProject?.projetoId || 'medsystem';
-
-      const rawAuth = Buffer.from(`apikey:${apiKey}`).toString('base64');
-      const url = `${baseUrl}/api/v3/projects/${projetoId}/work_packages?pageSize=30&sortBy=%5B%5B%22updatedAt%22%2C%22desc%22%5D%5D`;
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const projeto = await this.resolverProjetoOpenProject(baseUrl, rawAuth, configuracao?.openProject?.projetoId);
+      const url = `${baseUrl}${projeto.apiHref}/work_packages?pageSize=30&sortBy=%5B%5B%22updatedAt%22%2C%22desc%22%5D%5D`;
 
       const res = await fetch(url, {
         headers: { 'Authorization': `Basic ${rawAuth}`, 'Accept': 'application/hal+json' },
@@ -1539,7 +1739,7 @@ ${logsSnippet || '(Sem logs)'}
       criarContextoProjeto: padrao.setup.criarContextoProjeto,
       criarAssetsAgent: padrao.setup.criarAssetsAgent,
       openProjectHabilitado: padrao.openProject.habilitado,
-      openProjectUrlBase: '',
+      openProjectUrlBase: OPENPROJECT_URL_PADRAO,
       openProjectProjetoId: '',
       intervaloPollingSegundos: padrao.openProject.intervaloPollingSegundos,
       commitsPadrao: padrao.resumos.commitsPadrao,

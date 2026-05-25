@@ -121,7 +121,7 @@ var require_configuracao = __commonJS({
           raizContexto: tipos_1.RAIZ_CONTEXTO_PROJETO
         },
         openProject: {
-          habilitado: false,
+          habilitado: true,
           intervaloPollingSegundos: 60
         },
         resumos: {
@@ -361,6 +361,7 @@ var require_scaffold = __commonJS({
     }
     function criarContextoProjeto(raizWorkspace, criados, preservados) {
       garantirDiretorio(raizWorkspace, tipos_1.RAIZ_CONTEXTO_PROJETO, criados, preservados);
+      escreverArquivoSeAusente(raizWorkspace, `${tipos_1.RAIZ_CONTEXTO_PROJETO}/INDEX.md`, contextoIndex(), criados, preservados);
       escreverArquivoSeAusente(raizWorkspace, `${tipos_1.RAIZ_CONTEXTO_PROJETO}/README.md`, contextoReadme(), criados, preservados);
       escreverArquivoSeAusente(raizWorkspace, `${tipos_1.RAIZ_CONTEXTO_PROJETO}/mapa-do-projeto.md`, mapaProjeto(), criados, preservados);
       escreverArquivoSeAusente(raizWorkspace, `${tipos_1.RAIZ_CONTEXTO_PROJETO}/regras-de-negocio.md`, regrasNegocio(), criados, preservados);
@@ -405,6 +406,8 @@ Esta pasta concentra a operacao de QA do projeto.
 - registrar regras em \`regras-de-teste.md\`;
 - guardar prompts operacionais gerais e especificos;
 - persistir pacotes de validacao ligados a commits e OpenProject.
+
+Antes de criar ou mover testes, consulte \`regras-de-teste.md\`, o contexto do projeto e as instructions/skills relevantes em \`.github/\`.
 `;
     }
     function mapaDeTestes() {
@@ -416,9 +419,29 @@ testes: []
     function regrasDeTeste() {
       return `# Regras de teste
 
-- Sempre leia \`Qassistant-testes/mapa-de-testes.yaml\` antes de criar novos testes.
+## Leitura obrigatoria antes de agir
+
+- Leia nesta ordem: \`Qassistant-testes/mapa-de-testes.yaml\`, \`Qassistant-testes/regras-de-teste.md\`, \`docs/context/INDEX.md\` quando existir, senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+- Leia tambem os arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\` antes de criar, mover ou revisar testes.
+- Se existir rodada ativa em \`Qassistant-testes/validacoes/\`, leia o pacote atual antes de propor novos testes.
+
+## Onde criar cada tipo de teste
+
+- Testes unitarios ficam em \`Qassistant-testes/testes-unitarios/backend/\` ou \`Qassistant-testes/testes-unitarios/frontend/\`.
+- Testes de integracao ficam em \`Qassistant-testes/testes-de-integracao/backend/\` ou \`Qassistant-testes/testes-de-integracao/frontend/\`.
+- Testes de componentes ficam em \`Qassistant-testes/testes-de-componentes/frontend/\`.
+- Testes de ponta a ponta ficam em \`Qassistant-testes/testes-de-ponta-a-ponta/fluxos/\`. Arquivos auxiliares so devem ir para \`auxiliares/\` ou \`dados/\` quando forem suporte do fluxo.
+- Testes de usabilidade ficam em \`Qassistant-testes/testes-de-usabilidade/fluxos/\`.
+- Testes de acessibilidade ficam em \`Qassistant-testes/testes-de-acessibilidade/fluxos/\`.
+- Testes de desempenho ficam em \`Qassistant-testes/testes-de-desempenho/scripts/\`.
+- Testes de carga ficam em \`Qassistant-testes/testes-de-carga/scripts/\`.
+
+## Regras operacionais
+
 - Use nomenclatura clara em pt-BR.
 - Antes de criar um novo teste, verifique se ja existe cobertura similar.
+- Nao crie arquivos fora da pasta do tipo de teste.
+- Ao criar, mover, remover ou consolidar testes, atualize \`Qassistant-testes/mapa-de-testes.yaml\` na mesma entrega.
 - Prompts gerais ficam em \`Qassistant-testes/prompts/\`.
 - Prompts especificos ficam dentro da pasta do tipo de teste.
 - Validacoes por commits devem ser persistidas em \`Qassistant-testes/validacoes/\`.
@@ -431,9 +454,15 @@ name: guia-validacao-commits
 description: Gera um guia de validacao para uma rodada de commits usando o contexto do projeto e a estrutura de QA.
 ---
 
-Leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\` e os arquivos do pacote de validacao atual.
+Antes de responder, leia obrigatoriamente:
 
-Monte um guia de validacao em pt-BR com riscos, cenarios principais, regressao, tipos de teste recomendados e evidencias esperadas.
+1. \`Qassistant-testes/regras-de-teste.md\`.
+2. \`Qassistant-testes/mapa-de-testes.yaml\`.
+3. \`docs/context/INDEX.md\` quando existir; senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+4. Os arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\`.
+5. Os artefatos do pacote de validacao atual.
+
+Monte um guia de validacao em pt-BR com riscos, cenarios principais, regressao, tipos de teste recomendados, evidencias esperadas e apontamentos de quais artefatos precisam ser atualizados.
 `;
     }
     function promptRevisarCobertura() {
@@ -442,7 +471,14 @@ name: revisar-cobertura-testes
 description: Revisa a cobertura atual de testes para uma mudanca ou pacote de validacao.
 ---
 
-Analise os caminhos indicados e responda o que ja possui cobertura, o que precisa de novos testes e quais artefatos devem ser atualizados no mapa.
+Antes de responder, leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\`, \`docs/context/INDEX.md\` quando existir, os arquivos relevantes em \`.github/instructions/\`, as skills relevantes em \`.github/skills/\` e o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+
+Analise os caminhos indicados e responda:
+
+- o que ja possui cobertura;
+- o que precisa de novos testes;
+- em quais diretorios esses testes devem ser criados;
+- quais artefatos precisam ser atualizados no mapa e na rodada atual.
 `;
     }
     function promptSugerirCenarios() {
@@ -451,7 +487,9 @@ name: sugerir-cenarios-qa
 description: Sugere cenarios de QA a partir de uma mudanca ou pacote validado.
 ---
 
-Considere os commits selecionados, os riscos e a estrutura \`Qassistant-testes/\`. Entregue cenarios criticos, regressao, ponta a ponta, integracao e observacoes de evidencias.
+Antes de responder, leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\`, \`docs/context/INDEX.md\` quando existir, os arquivos relevantes em \`.github/instructions/\`, as skills relevantes em \`.github/skills/\` e o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+
+Considere os commits selecionados, os riscos e a estrutura \`Qassistant-testes/\`. Entregue cenarios criticos, regressao, ponta a ponta, integracao, observacoes de evidencias e o diretorio mais adequado para cada novo teste sugerido.
 `;
     }
     function readmeValidacoes() {
@@ -470,14 +508,53 @@ Itens recomendados por pacote:
 `;
     }
     function promptTipoTeste(tipo) {
+      const destinoPorTipo = {
+        unitario: "`Qassistant-testes/testes-unitarios/backend/` ou `Qassistant-testes/testes-unitarios/frontend/`",
+        integracao: "`Qassistant-testes/testes-de-integracao/backend/` ou `Qassistant-testes/testes-de-integracao/frontend/`",
+        componente: "`Qassistant-testes/testes-de-componentes/frontend/`",
+        "ponta a ponta": "`Qassistant-testes/testes-de-ponta-a-ponta/fluxos/`",
+        usabilidade: "`Qassistant-testes/testes-de-usabilidade/fluxos/`",
+        acessibilidade: "`Qassistant-testes/testes-de-acessibilidade/fluxos/`",
+        desempenho: "`Qassistant-testes/testes-de-desempenho/scripts/`",
+        carga: "`Qassistant-testes/testes-de-carga/scripts/`"
+      };
       return `---
 name: criar-teste-${tipo.replace(/ /g, "-")}
 description: Prompt base para criar ou revisar um teste de ${tipo}.
 ---
 
-Leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\` e o pacote de validacao atual, quando existir.
+Antes de responder, leia obrigatoriamente:
 
-Crie ou revise um teste de ${tipo} em pt-BR, mantendo o arquivo de destino e as regras de organizacao da pasta atual. Nao aplique mudancas automaticamente sem revisao humana.
+- \`Qassistant-testes/regras-de-teste.md\`.
+- \`Qassistant-testes/mapa-de-testes.yaml\`.
+- \`docs/context/INDEX.md\` quando existir; senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+- Os arquivos relevantes em \`.github/instructions/\`.
+- As skills relevantes em \`.github/skills/\`.
+- O pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+- Guias especificos da categoria atual, quando existirem.
+
+Crie ou revise um teste de ${tipo} em pt-BR seguindo estas regras:
+
+- escolha o destino correto em ${destinoPorTipo[tipo] || "`Qassistant-testes/`"};
+- nao crie arquivos fora da estrutura esperada;
+- verifique se ja existe cobertura similar antes de abrir um novo arquivo;
+- atualize \`Qassistant-testes/mapa-de-testes.yaml\` quando houver nova cobertura, remocao ou reorganizacao;
+- preserve rastreabilidade com a validacao atual quando houver;
+- nao aplique mudancas automaticamente sem revisao humana.
+`;
+    }
+    function contextoIndex() {
+      return `# Indice de contexto do projeto
+
+Leia este diretorio antes de criar ou revisar testes.
+
+Ordem sugerida:
+
+1. \`README.md\`
+2. \`mapa-do-projeto.md\`
+3. \`regras-de-negocio.md\`
+
+Se o projeto tambem possuir \`docs/context/INDEX.md\` na raiz, priorize esse indice como fonte principal e use este diretorio como complemento operacional.
 `;
     }
     function contextoReadme() {
@@ -487,6 +564,7 @@ Esta pasta registra contexto do projeto alvo para QA, agents e manutencao do QAs
 
 Arquivos iniciais:
 
+- INDEX.md
 - mapa-do-projeto.md
 - regras-de-negocio.md
 `;
@@ -513,7 +591,9 @@ Antes de criar, revisar ou atualizar testes, leia:
 
 - \`Qassistant-testes/regras-de-teste.md\`;
 - \`Qassistant-testes/mapa-de-testes.yaml\`;
-- arquivos relevantes em \`docs/contexto/\`;
+- \`docs/context/INDEX.md\`, quando existir;
+- \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`, quando \`docs/context/INDEX.md\` nao existir;
+- arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\`;
 - o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
 
 Regras:
@@ -522,6 +602,8 @@ Regras:
 - nao crie novos testes sem verificar cobertura existente;
 - mantenha nomenclatura em pt-BR;
 - trate \`Qassistant-testes/\` como fonte operacional de QA.
+- nao crie arquivos fora da pasta correta do tipo de teste;
+- ao criar, mover ou remover testes, atualize \`Qassistant-testes/mapa-de-testes.yaml\` na mesma entrega.
 `;
     }
     function skillValidacaoCommits() {
@@ -531,11 +613,13 @@ Use quando precisar transformar uma rodada de commits em plano ou pacote de vali
 
 Fluxo esperado:
 
-1. ler o pacote de validacao atual;
-2. verificar a task vinculada no OpenProject;
-3. revisar o mapa de testes;
-4. propor cenarios, riscos e evidencias;
-5. manter tudo revisavel em pt-BR.
+1. ler \`Qassistant-testes/regras-de-teste.md\` e \`Qassistant-testes/mapa-de-testes.yaml\`;
+2. ler \`docs/context/INDEX.md\` quando existir, ou o contexto em \`docs/contexto/\`;
+3. consultar instructions e skills relevantes em \`.github/\`;
+4. ler o pacote de validacao atual;
+5. verificar a task vinculada no OpenProject;
+6. propor cenarios, riscos, evidencias e atualizacoes de artefato;
+7. manter tudo revisavel em pt-BR.
 `;
     }
     function skillOperacaoTestes() {
@@ -545,11 +629,13 @@ Use quando precisar criar, revisar, reorganizar ou executar testes dentro de \`Q
 
 Prioridades:
 
-1. respeitar o mapa de testes e as regras;
+1. ler mapa, regras, contexto e instructions antes de alterar arquivos;
 2. identificar se o teste ja existe;
-3. usar prompts especificos do tipo;
-4. registrar evidencias e resultados;
-5. manter rastreabilidade com pacotes de validacao quando houver.
+3. criar arquivos apenas no diretorio correto do tipo;
+4. usar prompts especificos da categoria;
+5. atualizar \`Qassistant-testes/mapa-de-testes.yaml\` quando a cobertura mudar;
+6. registrar evidencias e resultados;
+7. manter rastreabilidade com pacotes de validacao quando houver.
 `;
     }
     function paraPosix(valor) {
@@ -4841,17 +4927,19 @@ var SetupWorkspaceSchema = external_exports.object({
   backend: external_exports.string().optional(),
   criarContextoProjeto: external_exports.boolean().default(true),
   criarAssetsAgent: external_exports.boolean().default(true),
-  openProjectHabilitado: external_exports.boolean().default(false),
+  openProjectHabilitado: external_exports.boolean().default(true),
   openProjectUrlBase: external_exports.string().optional(),
   openProjectProjetoId: external_exports.string().optional(),
   intervaloPollingSegundos: external_exports.number().int().min(15).default(60),
   commitsPadrao: external_exports.number().int().min(1).default(10)
 });
+var CampoDiretorioSetupSchema = external_exports.enum(["raizCodigo", "frontend", "backend"]);
 var MensagemWebviewParaHostSchema = external_exports.discriminatedUnion("tipo", [
   external_exports.object({ tipo: external_exports.literal("painel.carregado") }),
   external_exports.object({ tipo: external_exports.literal("workspace.inicializar"), setup: SetupWorkspaceSchema }),
   external_exports.object({ tipo: external_exports.literal("painel.atualizar") }),
   external_exports.object({ tipo: external_exports.literal("workspace.abrirCaminho"), caminhoRelativo: external_exports.string().min(1) }),
+  external_exports.object({ tipo: external_exports.literal("workspace.selecionarDiretorio"), campo: CampoDiretorioSetupSchema, caminhoAtual: external_exports.string().optional() }),
   external_exports.object({ tipo: external_exports.literal("validacao.criarRascunho"), titulo: external_exports.string().min(1).default("validacao-qa") }),
   external_exports.object({ tipo: external_exports.literal("validacao.criarComCommits"), titulo: external_exports.string().min(1).default("validacao-qa"), hashes: external_exports.array(external_exports.string().min(7)).default([]) }),
   external_exports.object({ tipo: external_exports.literal("git.carregarCommits"), limite: external_exports.number().int().min(1).max(100).default(10) }),
@@ -4861,6 +4949,12 @@ var MensagemWebviewParaHostSchema = external_exports.discriminatedUnion("tipo", 
   external_exports.object({ tipo: external_exports.literal("openproject.obterStatus"), taskId: external_exports.string().min(1) }),
   external_exports.object({ tipo: external_exports.literal("openproject.listarTasks") }),
   external_exports.object({ tipo: external_exports.literal("openproject.obterDetalhes"), taskId: external_exports.string().min(1) }),
+  external_exports.object({
+    tipo: external_exports.literal("openproject.validarConexao"),
+    urlBase: external_exports.string().min(1),
+    projetoRef: external_exports.string().optional(),
+    token: external_exports.string().optional()
+  }),
   external_exports.object({ tipo: external_exports.literal("config.salvarChaveGemini"), chave: external_exports.string().min(1) }),
   external_exports.object({ tipo: external_exports.literal("config.salvarChaveOpenProject"), chave: external_exports.string().min(1) }),
   external_exports.object({ tipo: external_exports.literal("validacao.selecionarPacote"), caminhoRelativo: external_exports.string().min(1) }),
@@ -5007,6 +5101,7 @@ var PainelTestesAba = class {
 
 // src/host/painel/provedor-painel.ts
 var execFileAsync = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var OPENPROJECT_URL_PADRAO = "http://openproject.ormel.com.br/";
 var ProvedorPainel = class {
   constructor(contexto, saida) {
     this.contexto = contexto;
@@ -5118,6 +5213,9 @@ var ProvedorPainel = class {
         case "workspace.abrirCaminho":
           await this.abrirCaminhoWorkspace(resultado.data.caminhoRelativo);
           return;
+        case "workspace.selecionarDiretorio":
+          await this.selecionarDiretorioWorkspace(resultado.data.campo, resultado.data.caminhoAtual);
+          return;
         case "validacao.criarRascunho":
           await this.criarPacoteValidacaoRascunho(resultado.data.titulo);
           return;
@@ -5141,6 +5239,9 @@ var ProvedorPainel = class {
           return;
         case "openproject.obterDetalhes":
           await this.obterDetalhesOpenProject(resultado.data.taskId);
+          return;
+        case "openproject.validarConexao":
+          await this.validarConexaoOpenProject(resultado.data.urlBase, resultado.data.projetoRef, resultado.data.token);
           return;
         case "config.salvarChaveGemini":
           await this.salvarChaveGemini(resultado.data.chave);
@@ -5751,11 +5852,152 @@ ${resumoConteudo}`;
     }
   }
   obterBaseUrlOpenProject(configuracao) {
-    let url = configuracao?.openProject?.urlBase || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || "https://openproject.ormel.com.br";
+    let url = configuracao?.openProject?.urlBase || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || OPENPROJECT_URL_PADRAO;
     if (url.endsWith("/")) {
       url = url.substring(0, url.length - 1);
     }
     return url;
+  }
+  criarAuthOpenProject(apiKey) {
+    return Buffer.from(`apikey:${apiKey}`).toString("base64");
+  }
+  async buscarProjetoOpenProject(baseUrl, rawAuth, referencia) {
+    const url = `${baseUrl}/api/v3/projects/${encodeURIComponent(referencia)}`;
+    const resposta = await fetch(url, {
+      headers: { Authorization: `Basic ${rawAuth}`, Accept: "application/hal+json" }
+    });
+    if (resposta.status === 404) {
+      return null;
+    }
+    if (!resposta.ok) {
+      throw new Error(`OpenProject retornou status ${resposta.status}: ${resposta.statusText}`);
+    }
+    return resposta.json();
+  }
+  async listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth) {
+    const listaUrl = `${baseUrl}/api/v3/projects?pageSize=200`;
+    const resposta = await fetch(listaUrl, {
+      headers: { Authorization: `Basic ${rawAuth}`, Accept: "application/hal+json" }
+    });
+    if (!resposta.ok) {
+      throw new Error(`OpenProject retornou status ${resposta.status}: ${resposta.statusText}`);
+    }
+    const data = await resposta.json();
+    const projetos = (data?._embedded?.elements || []).map((item) => this.mapearProjetoOpenProject(item, String(item?.identifier || item?.name || "projeto"))).filter((item) => Boolean(item.identificador || item.nome)).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+    return projetos;
+  }
+  normalizarTextoBusca(valor) {
+    return valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+  }
+  mapearProjetoOpenProject(projeto, referenciaFallback) {
+    const apiHref = String(projeto?._links?.self?.href || "").trim() || `/api/v3/projects/${encodeURIComponent(referenciaFallback)}`;
+    const identificadorBruto = String(projeto?.identifier || "").trim();
+    const identificadorHref = apiHref.split("/").filter(Boolean).pop();
+    return {
+      apiHref,
+      identificador: identificadorBruto || identificadorHref,
+      nome: String(projeto?.name || identificadorBruto || referenciaFallback).trim() || referenciaFallback
+    };
+  }
+  async resolverProjetoOpenProject(baseUrl, rawAuth, referenciaInformada) {
+    const referencia = String(referenciaInformada || "medsystem").trim() || "medsystem";
+    const projetoDireto = await this.buscarProjetoOpenProject(baseUrl, rawAuth, referencia);
+    if (projetoDireto) {
+      return this.mapearProjetoOpenProject(projetoDireto, referencia);
+    }
+    const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
+    const referenciaNormalizada = this.normalizarTextoBusca(referencia);
+    const projeto = projetos.find((item) => {
+      const nome = this.normalizarTextoBusca(item.nome);
+      const identificador = this.normalizarTextoBusca(String(item.identificador || ""));
+      return nome === referenciaNormalizada || identificador === referenciaNormalizada;
+    });
+    if (!projeto) {
+      throw new Error(`Projeto "${referencia}" n\xE3o encontrado no OpenProject. Use o nome exibido no projeto ou o identificador atual.`);
+    }
+    return projeto;
+  }
+  montarUrlWebTaskOpenProject(baseUrl, projeto, taskId) {
+    if (projeto.identificador) {
+      return `${baseUrl}/projects/${projeto.identificador}/work_packages/${taskId}`;
+    }
+    return `${baseUrl}/work_packages/${taskId}`;
+  }
+  async validarConexaoOpenProject(urlBase, projetoRef, tokenInformado) {
+    const baseUrl = this.obterBaseUrlOpenProject({ openProject: { urlBase } });
+    const apiKey = String(tokenInformado || "").trim() || await this.obterChaveOpenProject();
+    if (!apiKey) {
+      this.enviar({
+        tipo: "openproject.validacaoConcluida",
+        sucesso: false,
+        mensagem: "Informe um token para validar a conex\xE3o com o OpenProject."
+      });
+      return;
+    }
+    try {
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const usuarioResposta = await fetch(`${baseUrl}/api/v3/users/me`, {
+        headers: { Authorization: `Basic ${rawAuth}`, Accept: "application/hal+json" }
+      });
+      if (!usuarioResposta.ok) {
+        throw new Error("Token inv\xE1lido ou sem acesso ao OpenProject informado.");
+      }
+      const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
+      const projeto = projetoRef?.trim() ? await this.resolverProjetoOpenProject(baseUrl, rawAuth, projetoRef) : void 0;
+      if (tokenInformado?.trim()) {
+        await this.contexto.secrets.store("qassistant.openProjectApiKey", tokenInformado.trim());
+        this.openProjectKeyPresente = true;
+      }
+      this.enviar({
+        tipo: "openproject.validacaoConcluida",
+        sucesso: true,
+        mensagem: projeto ? `Conex\xE3o validada com sucesso para o projeto ${projeto.nome}.` : projetos.length > 0 ? `Conex\xE3o validada com sucesso. ${projetos.length} projeto(s) dispon\xEDvel(is) para sele\xE7\xE3o.` : "Conex\xE3o validada com sucesso, mas este token n\xE3o retornou projetos vis\xEDveis para sele\xE7\xE3o.",
+        projeto: projeto ? { nome: projeto.nome, identificador: projeto.identificador } : void 0,
+        projetosDisponiveis: projetos.map((item) => ({
+          nome: item.nome,
+          identificador: item.identificador || item.nome
+        }))
+      });
+      await this.atualizar();
+    } catch (err) {
+      const mensagem = err instanceof Error ? err.message : String(err);
+      this.enviar({
+        tipo: "openproject.validacaoConcluida",
+        sucesso: false,
+        mensagem
+      });
+    }
+  }
+  async selecionarDiretorioWorkspace(campo, caminhoAtual) {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Abra um workspace antes de selecionar diret\xF3rios." });
+      return;
+    }
+    const caminhoInformado = String(caminhoAtual || "").trim();
+    const defaultUri = caminhoInformado ? vscode3.Uri.file(path.resolve(raizWorkspace, caminhoInformado)) : vscode3.Uri.file(raizWorkspace);
+    const selecao = await vscode3.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri,
+      openLabel: "Selecionar pasta",
+      title: campo === "raizCodigo" ? "Selecionar pasta principal do c\xF3digo" : campo === "frontend" ? "Selecionar pasta do frontend" : "Selecionar pasta do backend"
+    });
+    if (!selecao || selecao.length === 0) {
+      return;
+    }
+    const caminhoAbsoluto = selecao[0].fsPath;
+    const relativo = path.relative(raizWorkspace, caminhoAbsoluto);
+    if (relativo.startsWith("..") || path.isAbsolute(relativo)) {
+      this.enviar({ tipo: "notificacao.erro", mensagem: "Selecione uma pasta que esteja dentro do workspace atual." });
+      return;
+    }
+    this.enviar({
+      tipo: "workspace.diretorioSelecionado",
+      campo,
+      caminho: normalizarRelativo(relativo || ".")
+    });
   }
   async publicarTaskOpenProject(rascunhoCaminho, taskId) {
     const raizWorkspace = obterRaizWorkspace();
@@ -5771,14 +6013,14 @@ ${resumoConteudo}`;
       const apiKey = await this.obterChaveOpenProject();
       const configuracao = (0, import_nucleo2.carregarConfiguracaoWorkspace)(raizWorkspace);
       const baseUrl = this.obterBaseUrlOpenProject(configuracao);
-      const projetoId = configuracao?.openProject?.projetoId || "medsystem";
       if (!apiKey) {
         throw new Error("Configure a OpenProject API Key na aba Configura\xE7\xE3o do QAssistant, ou defina PROJECT_AI_OPENPROJECT_API_KEY no ambiente.");
       }
       const resumoConteudo = fs2.readFileSync(resumoPath, "utf8");
       const tituloPacote = path.basename(caminhoFisico);
       const idExistente = taskId || "";
-      const rawAuth = Buffer.from(`apikey:${apiKey}`).toString("base64");
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const projeto = await this.resolverProjetoOpenProject(baseUrl, rawAuth, configuracao?.openProject?.projetoId);
       if (idExistente) {
         this.saida.appendLine(`Atualizando task existente de ID ${idExistente}`);
         const getRes = await fetch(`${baseUrl}/api/v3/work_packages/${idExistente}`, {
@@ -5807,7 +6049,7 @@ ${resumoConteudo}`;
         }
         let yamlContent = fs2.readFileSync(pacoteYamlPath, "utf8");
         yamlContent = yamlContent.replace(/taskId: .*/, `taskId: "${idExistente}"`);
-        yamlContent = yamlContent.replace(/url: .*/, `url: "${baseUrl}/projects/${projetoId}/work_packages/${idExistente}"`);
+        yamlContent = yamlContent.replace(/url: .*/, `url: "${this.montarUrlWebTaskOpenProject(baseUrl, projeto, String(idExistente))}"`);
         fs2.writeFileSync(pacoteYamlPath, yamlContent, "utf8");
         const logPath = path.join(caminhoFisico, "auditoria-processo.log");
         if (fs2.existsSync(logPath)) {
@@ -5816,8 +6058,8 @@ ${resumoConteudo}`;
         }
         this.enviar({ tipo: "notificacao.info", mensagem: `Task #${idExistente} atualizada com sucesso no OpenProject!` });
       } else {
-        this.saida.appendLine(`Criando nova task no OpenProject no projeto: ${projetoId}`);
-        const createRes = await fetch(`${baseUrl}/api/v3/projects/${projetoId}/work_packages`, {
+        this.saida.appendLine(`Criando nova task no OpenProject no projeto: ${projeto.nome}`);
+        const createRes = await fetch(`${baseUrl}${projeto.apiHref}/work_packages`, {
           method: "POST",
           headers: {
             "Authorization": `Basic ${rawAuth}`,
@@ -5841,7 +6083,7 @@ ${resumoConteudo}`;
         const novaId = novaTask.id;
         let yamlContent = fs2.readFileSync(pacoteYamlPath, "utf8");
         yamlContent = yamlContent.replace(/taskId: .*/, `taskId: "${novaId}"`);
-        yamlContent = yamlContent.replace(/url: .*/, `url: "${baseUrl}/projects/${projetoId}/work_packages/${novaId}"`);
+        yamlContent = yamlContent.replace(/url: .*/, `url: "${this.montarUrlWebTaskOpenProject(baseUrl, projeto, String(novaId))}"`);
         fs2.writeFileSync(pacoteYamlPath, yamlContent, "utf8");
         const logPath = path.join(caminhoFisico, "auditoria-processo.log");
         if (fs2.existsSync(logPath)) {
@@ -6209,9 +6451,9 @@ ${logsSnippet || "(Sem logs)"}
         this.enviar({ tipo: "notificacao.erro", mensagem: "Configure a OpenProject API Key na aba Configura\xE7\xE3o do QAssistant, ou defina PROJECT_AI_OPENPROJECT_API_KEY no ambiente." });
         return;
       }
-      const projetoId = configuracao?.openProject?.projetoId || "medsystem";
-      const rawAuth = Buffer.from(`apikey:${apiKey}`).toString("base64");
-      const url = `${baseUrl}/api/v3/projects/${projetoId}/work_packages?pageSize=30&sortBy=%5B%5B%22updatedAt%22%2C%22desc%22%5D%5D`;
+      const rawAuth = this.criarAuthOpenProject(apiKey);
+      const projeto = await this.resolverProjetoOpenProject(baseUrl, rawAuth, configuracao?.openProject?.projetoId);
+      const url = `${baseUrl}${projeto.apiHref}/work_packages?pageSize=30&sortBy=%5B%5B%22updatedAt%22%2C%22desc%22%5D%5D`;
       const res = await fetch(url, {
         headers: { "Authorization": `Basic ${rawAuth}`, "Accept": "application/hal+json" }
       });
@@ -6324,7 +6566,7 @@ ${logsSnippet || "(Sem logs)"}
       criarContextoProjeto: padrao.setup.criarContextoProjeto,
       criarAssetsAgent: padrao.setup.criarAssetsAgent,
       openProjectHabilitado: padrao.openProject.habilitado,
-      openProjectUrlBase: "",
+      openProjectUrlBase: OPENPROJECT_URL_PADRAO,
       openProjectProjetoId: "",
       intervaloPollingSegundos: padrao.openProject.intervaloPollingSegundos,
       commitsPadrao: padrao.resumos.commitsPadrao

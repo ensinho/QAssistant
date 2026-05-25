@@ -72,3 +72,21 @@
 - O runner embutido da aba principal e as superfices restantes de modal do OpenProject passaram a convergir para classes compartilhadas de layout, campos e cards de comentario/resumo.
 - Ajustado o corpo da analise Gemini para permitir scroll interno quando o texto exceder a altura disponivel.
 - Reforcado o padding do shell de commits e dos cards internos para corrigir a aparencia "colada" no wizard de selecao.
+
+## 2026-05-25
+
+### Onboarding e OpenProject
+
+- O primeiro uso da extensao passou a usar um onboarding em etapas, compacto e orientado por progresso, em vez de um formulario unico e tecnico.
+- A etapa de OpenProject passou a vir ativa por padrao e foi movida para antes da configuracao de caminhos do projeto.
+- O token do OpenProject passou a ser o primeiro dado solicitado nessa etapa, com validacao imediata e link direto para a tela de geracao do token.
+- A validacao do token agora devolve a lista de projetos acessiveis para selecao guiada no painel, eliminando a necessidade de digitar o identificador na maioria dos casos.
+- Os campos de raiz do codigo, frontend e backend passaram a aceitar selecao por pasta usando o picker nativo do VS Code.
+- O resumo do dashboard deixou de comunicar polling ativo como se estivesse implementado e passou a refletir o estado real de consulta sob demanda.
+
+### Prompts, regras e scaffold de QA
+
+- O scaffold do `@qassistant/nucleo` passou a criar `docs/contexto/INDEX.md` para oferecer uma entrada explicita de contexto quando `docs/context/INDEX.md` nao existir.
+- Regras e prompts de `Qassistant-testes/` passaram a exigir leitura explicita de contexto, `.github/instructions`, `.github/skills` e pacote de validacao atual.
+- Os prompts de criacao de testes passaram a indicar o diretorio correto por tipo e a exigir atualizacao de `Qassistant-testes/mapa-de-testes.yaml` quando a cobertura mudar.
+- A documentacao tecnica do QAssistant foi sincronizada com o novo fluxo de onboarding e com o contrato de validacao do OpenProject.

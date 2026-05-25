@@ -1,9 +1,10 @@
 import type { FC, ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import type { CommitGitQAssistant, EstadoPainel, MensagemHostParaWebview, MensagemWebviewParaHost, SetupWorkspace, TaskOpenProjectQA } from '../../contratos/mensagens';
+import type { CampoDiretorioSetup, CommitGitQAssistant, EstadoPainel, MensagemHostParaWebview, MensagemWebviewParaHost, ProjetoOpenProjectDisponivel, SetupWorkspace, TaskOpenProjectQA } from '../../contratos/mensagens';
 import vsCodeApi from '../vscodeApi';
 
 const vscode = vsCodeApi;
+const OPENPROJECT_URL_PADRAO = 'http://openproject.ormel.com.br/';
 
 const estadoInicial: EstadoPainel = {
   produto: 'QAssistant',
@@ -50,12 +51,20 @@ const setupInicial: SetupWorkspace = {
   backend: '',
   criarContextoProjeto: true,
   criarAssetsAgent: true,
-  openProjectHabilitado: false,
-  openProjectUrlBase: '',
+  openProjectHabilitado: true,
+  openProjectUrlBase: OPENPROJECT_URL_PADRAO,
   openProjectProjetoId: '',
   intervaloPollingSegundos: 60,
   commitsPadrao: 10,
 };
+
+type EtapaOnboarding = 'boas-vindas' | 'openproject' | 'workspace' | 'concluir';
+
+interface EstadoValidacaoOpenProject {
+  status: 'ocioso' | 'carregando' | 'sucesso' | 'erro';
+  mensagem: string;
+  projetoNome?: string;
+}
 
 // Ícone: Voltar
 const IconArrowLeft: FC = () => (
@@ -277,11 +286,20 @@ export function App(): ReactElement {
   const [novoStatusHref, setNovoStatusHref] = useState('');
   const [enviandoComentario, setEnviandoComentario] = useState(false);
   const [descricaoColapsada, setDescricaoColapsada] = useState(false);
+  const [etapaOnboarding, setEtapaOnboarding] = useState<EtapaOnboarding>('boas-vindas');
+  const [tokenOpenProject, setTokenOpenProject] = useState('');
+  const [validacaoOpenProject, setValidacaoOpenProject] = useState<EstadoValidacaoOpenProject>({ status: 'ocioso', mensagem: '' });
+  const [projetosOpenProjectDisponiveis, setProjetosOpenProjectDisponiveis] = useState<ProjetoOpenProjectDisponivel[]>([]);
 
   const taskAtiva = useMemo(() => {
     if (!selectedTask) return null;
     return estado.openprojectTasks.find((t) => t.id === selectedTask.id) || selectedTask;
   }, [selectedTask, estado.openprojectTasks]);
+
+  const projetoOpenProjectSelecionado = useMemo(
+    () => projetosOpenProjectDisponiveis.find((item) => item.identificador === setup.openProjectProjetoId),
+    [projetosOpenProjectDisponiveis, setup.openProjectProjetoId],
+  );
 
   // Limpar formulário de comentário ao trocar/fechar tarefa
   useEffect(() => {
@@ -323,6 +341,35 @@ export function App(): ReactElement {
         setSetup((atual) => preencherSetupComEstado(atual, mensagemRecebida.estado));
         return;
       }
+      if (mensagemRecebida.tipo === 'workspace.diretorioSelecionado') {
+        setSetup((atual) => ({ ...atual, [mensagemRecebida.campo]: mensagemRecebida.caminho }));
+        return;
+      }
+      if (mensagemRecebida.tipo === 'openproject.validacaoConcluida') {
+        const projetos = mensagemRecebida.projetosDisponiveis || [];
+        setProjetosOpenProjectDisponiveis(projetos);
+        setValidacaoOpenProject({
+          status: mensagemRecebida.sucesso ? 'sucesso' : 'erro',
+          mensagem: mensagemRecebida.mensagem,
+          projetoNome: mensagemRecebida.projeto?.nome,
+        });
+        if (mensagemRecebida.sucesso) {
+          setSetup((atual) => {
+            let projetoSelecionado = atual.openProjectProjetoId;
+            if (mensagemRecebida.projeto?.identificador) {
+              projetoSelecionado = mensagemRecebida.projeto.identificador;
+            } else if ((!projetoSelecionado || !projetos.some((item) => item.identificador === projetoSelecionado)) && projetos.length > 0) {
+              projetoSelecionado = projetos[0].identificador;
+            }
+
+            return { ...atual, openProjectProjetoId: projetoSelecionado };
+          });
+        }
+        if (mensagemRecebida.sucesso) {
+          setTokenOpenProject('');
+        }
+        return;
+      }
       if (mensagemRecebida.tipo === 'notificacao.info' || mensagemRecebida.tipo === 'notificacao.erro') {
         setProcessandoIA(null);
         setEnviandoComentario(false);
@@ -362,6 +409,16 @@ export function App(): ReactElement {
     }
   }, [estado.ultimoPacoteValidacao]);
 
+  useEffect(() => {
+    if (estado.workspaceInicializado) {
+      return;
+    }
+    if (!setup.openProjectHabilitado) {
+      setValidacaoOpenProject({ status: 'ocioso', mensagem: '' });
+      setProjetosOpenProjectDisponiveis([]);
+    }
+  }, [estado.workspaceInicializado, setup.openProjectHabilitado]);
+
   const status = useMemo(() => {
     if (!estado.workspaceAberto) return 'Abra um workspace para começar.';
     if (!estado.workspaceInicializado) return 'Workspace ainda não inicializado.';
@@ -394,7 +451,7 @@ export function App(): ReactElement {
   const modulos = [
     {
       titulo: 'OpenProject',
-      descricao: 'Preparar vínculo, polling e snapshots de tasks.',
+      descricao: 'Preparar vínculo, validar conexão e salvar snapshots de tasks.',
       estado: estado.configuracao?.openProject.habilitado ? 'Preparado' : 'Configurar',
       acao: 'Configurar',
       executar: () => focarSetupOpenProject(atualizarSetup),
@@ -440,6 +497,39 @@ export function App(): ReactElement {
 
   function inicializarWorkspace(): void {
     enviar({ tipo: 'workspace.inicializar', setup });
+  }
+
+  function carregarProjetosOpenProject(): void {
+    setValidacaoOpenProject({ status: 'carregando', mensagem: 'Validando conexão com o OpenProject...' });
+    enviar({
+      tipo: 'openproject.validarConexao',
+      urlBase: setup.openProjectUrlBase || OPENPROJECT_URL_PADRAO,
+      token: tokenOpenProject.trim() || undefined,
+    });
+  }
+
+  function selecionarDiretorioSetup(campo: CampoDiretorioSetup): void {
+    const caminhoAtual = setup[campo] || '.';
+    enviar({ tipo: 'workspace.selecionarDiretorio', campo, caminhoAtual });
+  }
+
+  function renderCampoDiretorio(label: string, campo: CampoDiretorioSetup, placeholder?: string): ReactElement {
+    return (
+      <label>
+        {label}
+        <div className="setup-path-picker">
+          <input
+            placeholder={placeholder}
+            value={setup[campo] || ''}
+            onChange={(evento) => atualizarSetup(campo, evento.target.value)}
+          />
+          <button type="button" className="secondary setup-picker-button" onClick={() => selecionarDiretorioSetup(campo)}>
+            <IconFolder />
+            <span>Selecionar pasta</span>
+          </button>
+        </div>
+      </label>
+    );
   }
 
   function recarregarCommits(): void {
@@ -562,18 +652,18 @@ export function App(): ReactElement {
           <div className="tab-panel-content">
             <section className="panel status-panel" aria-labelledby="status-title">
               <div>
-                <h2 id="status-title" style={{ fontSize: '13px', fontWeight: 600 }}>Setup pendente</h2>
-                <p style={{ margin: '4px 0', fontSize: '11px', color: 'var(--qa-muted)' }}>O QAssistant precisa inicializar sua estrutura operacional de testes e docs neste workspace antes de começar.</p>
-                <div className="progress-block" aria-label={`Progresso do setup: ${progressoSetup}%`} style={{ marginTop: 'var(--qa-space-2)' }}>
+                <h2 id="status-title" style={{ fontSize: '13px', fontWeight: 600 }}>Primeiro uso do QAssistant</h2>
+                <p style={{ margin: '4px 0', fontSize: '11px', color: 'var(--qa-muted)' }}>Configure só o essencial. O restante pode ser ajustado depois na aba de configuração.</p>
+                <div className="progress-block" aria-label={`Progresso estrutural do setup: ${progressoSetup}%`} style={{ marginTop: 'var(--qa-space-2)' }}>
                   <div className="progress-track">
                     <span style={{ width: `${progressoSetup}%` }} />
                   </div>
-                  <strong>{progressoSetup}% pronto</strong>
+                  <strong>{progressoSetup}% da estrutura atual detectada</strong>
                 </div>
               </div>
               <div className="actions" style={{ marginTop: 'var(--qa-space-2)' }}>
                 <button type="button" className="secondary" style={{ fontSize: '11px' }} onClick={() => enviar({ tipo: 'painel.atualizar' })}>
-                  Atualizar
+                  Atualizar leitura do workspace
                 </button>
               </div>
             </section>
@@ -581,74 +671,216 @@ export function App(): ReactElement {
             <section className="panel setup-panel" aria-labelledby="setup-title">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Jornada guiada</p>
+                  <p className="eyebrow">Onboarding guiado</p>
                   <h2 id="setup-title" style={{ fontSize: '13px' }}>Inicializar workspace</h2>
                 </div>
-                <span className="badge">Pendente</span>
+                <span className="badge">Etapa {['boas-vindas', 'openproject', 'workspace', 'concluir'].indexOf(etapaOnboarding) + 1} de 4</span>
               </div>
 
-              <div className="form-grid">
-                <label>
-                  Nome do projeto
-                  <input value={setup.nomeProjeto} onChange={(evento) => atualizarSetup('nomeProjeto', evento.target.value)} />
-                </label>
-                <label>
-                  Raiz do código
-                  <input value={setup.raizCodigo} onChange={(evento) => atualizarSetup('raizCodigo', evento.target.value)} />
-                </label>
-                <label>
-                  Frontend
-                  <input placeholder="Opcional" value={setup.frontend || ''} onChange={(evento) => atualizarSetup('frontend', evento.target.value)} />
-                </label>
-                <label>
-                  Backend
-                  <input placeholder="Opcional" value={setup.backend || ''} onChange={(evento) => atualizarSetup('backend', evento.target.value)} />
-                </label>
+              <div className="setup-wizard-steps" role="tablist" aria-label="Etapas do onboarding">
+                <button type="button" className={`setup-step-pill ${etapaOnboarding === 'boas-vindas' ? 'active' : ''}`} onClick={() => setEtapaOnboarding('boas-vindas')}>1. Visão geral</button>
+                <button type="button" className={`setup-step-pill ${etapaOnboarding === 'openproject' ? 'active' : ''}`} onClick={() => setEtapaOnboarding('openproject')}>2. OpenProject</button>
+                <button type="button" className={`setup-step-pill ${etapaOnboarding === 'workspace' ? 'active' : ''}`} onClick={() => setEtapaOnboarding('workspace')}>3. Projeto</button>
+                <button type="button" className={`setup-step-pill ${etapaOnboarding === 'concluir' ? 'active' : ''}`} onClick={() => setEtapaOnboarding('concluir')}>4. Concluir</button>
               </div>
 
-              <div className="toggle-row" style={{ display: 'flex', gap: '12px', padding: '4px 0' }}>
-                <label className="check-row" style={{ fontSize: '11px' }}>
-                  <input type="checkbox" checked={setup.criarContextoProjeto} onChange={(evento) => atualizarSetup('criarContextoProjeto', evento.target.checked)} />
-                  Criar docs/contexto
-                </label>
-                <label className="check-row" style={{ fontSize: '11px' }}>
-                  <input type="checkbox" checked={setup.criarAssetsAgent} onChange={(evento) => atualizarSetup('criarAssetsAgent', evento.target.checked)} />
-                  Criar instructions e skills
-                </label>
-              </div>
+              {etapaOnboarding === 'boas-vindas' && (
+                <div className="setup-wizard-panel">
+                  <div className="setup-hero-grid">
+                    <article className="surface-subtle setup-hero-card">
+                      <span className="badge">QA operacional</span>
+                      <h3>O que o QAssistant faz</h3>
+                      <p>Organiza estrutura de testes, pacotes de validação por commits, prompts revisáveis e navegação operacional sem sair do VS Code.</p>
+                    </article>
+                    <article className="surface-subtle setup-hero-card">
+                      <span className="badge">Integrações</span>
+                      <h3>O que pode ser preparado agora</h3>
+                      <p>Contexto do projeto, instructions, skills, OpenProject e pastas padrão para agentes em Cursor e Copilot seguirem o fluxo certo.</p>
+                    </article>
+                  </div>
+                  <div className="setup-callout-grid">
+                    <div className="surface-subtle setup-callout-box">
+                      <strong>Sem configuração enorme</strong>
+                      <span>Você informa o projeto, decide se quer contexto/skills e pode validar o OpenProject sem sair do painel.</span>
+                    </div>
+                    <div className="surface-subtle setup-callout-box">
+                      <strong>Pode pular o OpenProject</strong>
+                      <span>A integração é opcional. O setup principal continua funcionando e a conexão pode ser concluída depois.</span>
+                    </div>
+                  </div>
+                  <div className="actions-row">
+                    <button type="button" onClick={() => setEtapaOnboarding('openproject')}>Começar setup</button>
+                  </div>
+                </div>
+              )}
 
-              <div className="subsection">
-                <label className="check-row" style={{ fontSize: '11px', fontWeight: 600 }}>
-                  <input type="checkbox" checked={setup.openProjectHabilitado} onChange={(evento) => atualizarSetup('openProjectHabilitado', evento.target.checked)} />
-                  Preparar vínculo com OpenProject
-                </label>
-                {setup.openProjectHabilitado && (
-                  <div className="form-grid" style={{ marginTop: '8px' }}>
+              {etapaOnboarding === 'openproject' && (
+                <div className="setup-wizard-panel">
+                  <div className="setup-callout-grid single-column">
+                    <div className="surface-subtle setup-callout-box">
+                      <strong>Integração ativa por padrão</strong>
+                      <span>Configure primeiro o token do OpenProject. Depois o QAssistant busca os projetos disponíveis para você apenas escolher.</span>
+                    </div>
+                  </div>
+
+                  <label className="check-row setup-primary-toggle">
+                    <input type="checkbox" checked={setup.openProjectHabilitado} onChange={(evento) => atualizarSetup('openProjectHabilitado', evento.target.checked)} />
+                    Preparar integração com OpenProject neste workspace
+                  </label>
+
+                  {setup.openProjectHabilitado && (
+                    <>
+                      <div className="form-grid compact">
+                        <label>
+                          URL do OpenProject
+                          <input value={setup.openProjectUrlBase || ''} onChange={(evento) => atualizarSetup('openProjectUrlBase', evento.target.value)} />
+                        </label>
+                        <label>
+                          Token de acesso
+                          <input
+                            type="password"
+                            placeholder={estado.openProjectKeyPresente ? 'Token já salvo; digite só se quiser substituir' : 'Cole o token para validar e listar projetos'}
+                            value={tokenOpenProject}
+                            onChange={(evento) => setTokenOpenProject(evento.target.value)}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="setup-inline-help">
+                        <span>Depois de validar o token, o QAssistant carrega os projetos que este acesso consegue enxergar.</span>
+                        <a href={`${OPENPROJECT_URL_PADRAO}my/access_token`} target="_blank" rel="noreferrer">Ainda não tem um token?</a>
+                      </div>
+
+                      {validacaoOpenProject.status !== 'ocioso' && (
+                        <div className={`inline-alert ${validacaoOpenProject.status === 'sucesso' ? 'success' : validacaoOpenProject.status === 'erro' ? 'danger' : 'info'}`}>
+                          <span>{validacaoOpenProject.status === 'carregando' ? 'Validando...' : validacaoOpenProject.mensagem}</span>
+                          {validacaoOpenProject.projetoNome ? <strong>{validacaoOpenProject.projetoNome}</strong> : null}
+                        </div>
+                      )}
+
+                      {projetosOpenProjectDisponiveis.length > 0 && (
+                        <label>
+                          Projeto no OpenProject
+                          <select
+                            value={setup.openProjectProjetoId || ''}
+                            onChange={(evento) => atualizarSetup('openProjectProjetoId', evento.target.value)}
+                          >
+                            {projetosOpenProjectDisponiveis.map((projeto) => (
+                              <option key={projeto.identificador} value={projeto.identificador}>
+                                {projeto.nome}{projeto.identificador !== projeto.nome ? ` (${projeto.identificador})` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+
+                      <div className="actions-row split wrap-mobile">
+                        <button type="button" className="secondary" onClick={carregarProjetosOpenProject}>
+                          Conectar e listar projetos
+                        </button>
+                        <button type="button" className="secondary" onClick={() => {
+                          atualizarSetup('openProjectHabilitado', false);
+                          atualizarSetup('openProjectProjetoId', '');
+                          setValidacaoOpenProject({ status: 'ocioso', mensagem: '' });
+                          setProjetosOpenProjectDisponiveis([]);
+                        }}>
+                          Pular por agora
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  <div className="actions-row split">
+                    <button type="button" className="secondary" onClick={() => setEtapaOnboarding('boas-vindas')}>Voltar</button>
+                    <button
+                      type="button"
+                      onClick={() => setEtapaOnboarding('workspace')}
+                      disabled={setup.openProjectHabilitado && !(validacaoOpenProject.status === 'sucesso' && setup.openProjectProjetoId)}
+                    >
+                      Continuar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {etapaOnboarding === 'workspace' && (
+                <div className="setup-wizard-panel">
+                  <div className="form-grid">
                     <label>
-                      URL do OpenProject
-                      <input value={setup.openProjectUrlBase || ''} onChange={(evento) => atualizarSetup('openProjectUrlBase', evento.target.value)} />
+                      Nome do projeto
+                      <input value={setup.nomeProjeto} onChange={(evento) => atualizarSetup('nomeProjeto', evento.target.value)} placeholder="Ex.: MedSystem" />
                     </label>
+                    {renderCampoDiretorio('Pasta principal do código', 'raizCodigo')}
+                    {renderCampoDiretorio('Frontend', 'frontend', 'Opcional')}
+                    {renderCampoDiretorio('Backend', 'backend', 'Opcional')}
                     <label>
-                      ID do projeto
-                      <input value={setup.openProjectProjetoId || ''} onChange={(evento) => atualizarSetup('openProjectProjetoId', evento.target.value)} />
-                    </label>
-                    <label>
-                      Polling em segundos
-                      <input type="number" min={15} value={setup.intervaloPollingSegundos} onChange={(evento) => atualizarSetup('intervaloPollingSegundos', numero(evento.target.value, 60))} />
-                    </label>
-                    <label>
-                      Commits padrão
+                      Commits sugeridos por rodada
                       <input type="number" min={1} value={setup.commitsPadrao} onChange={(evento) => atualizarSetup('commitsPadrao', numero(evento.target.value, 10))} />
                     </label>
                   </div>
-                )}
-              </div>
 
-              <div className="actions-row">
-                <button type="button" onClick={inicializarWorkspace} disabled={!estado.workspaceAberto || !setup.nomeProjeto.trim()}>
-                  Criar estrutura do QAssistant
-                </button>
-              </div>
+                  <div className="setup-option-stack">
+                    <label className="check-row">
+                      <input type="checkbox" checked={setup.criarContextoProjeto} onChange={(evento) => atualizarSetup('criarContextoProjeto', evento.target.checked)} />
+                      Criar `docs/contexto` para registrar arquitetura, regras e riscos do projeto.
+                    </label>
+                    <label className="check-row">
+                      <input type="checkbox" checked={setup.criarAssetsAgent} onChange={(evento) => atualizarSetup('criarAssetsAgent', evento.target.checked)} />
+                      Criar `.github/instructions` e `.github/skills` para orientar agentes automaticamente.
+                    </label>
+                  </div>
+
+                  <div className="actions-row split">
+                    <button type="button" className="secondary" onClick={() => setEtapaOnboarding('openproject')}>Voltar</button>
+                    <button type="button" onClick={() => setEtapaOnboarding('concluir')} disabled={!setup.nomeProjeto.trim()}>Revisar setup</button>
+                  </div>
+                </div>
+              )}
+
+              {etapaOnboarding === 'concluir' && (
+                <div className="setup-wizard-panel">
+                  <div className="setup-summary-grid">
+                    <div className="surface-subtle setup-summary-card">
+                      <span className="summary-card__label">Projeto</span>
+                      <strong className="summary-card__value text-truncate">{setup.nomeProjeto || 'Sem nome definido'}</strong>
+                      <span className="summary-card__meta text-truncate">Código em {setup.raizCodigo || '.'}</span>
+                    </div>
+                    <div className="surface-subtle setup-summary-card">
+                      <span className="summary-card__label">OpenProject</span>
+                      <strong className="summary-card__value">{setup.openProjectHabilitado ? 'Preparado' : 'Pulado'}</strong>
+                      <span className="summary-card__meta text-truncate">
+                        {setup.openProjectHabilitado
+                          ? validacaoOpenProject.status === 'sucesso'
+                            ? projetoOpenProjectSelecionado?.nome || validacaoOpenProject.projetoNome || 'Conexão validada'
+                            : 'Você pode validar depois na configuração'
+                          : 'Sem bloquear o primeiro uso'}
+                      </span>
+                    </div>
+                    <div className="surface-subtle setup-summary-card">
+                      <span className="summary-card__label">Assets para agentes</span>
+                      <strong className="summary-card__value">{setup.criarAssetsAgent ? 'Ativados' : 'Desativados'}</strong>
+                      <span className="summary-card__meta text-truncate">Instructions, skills e regras de QA</span>
+                    </div>
+                  </div>
+
+                  <div className="setup-checklist-grid">
+                    {resumoEstrutura.map(([titulo, presente, caminho]) => (
+                      <div key={titulo} className={`setup-check-item ${presente ? 'ready' : ''}`}>
+                        <strong>{titulo}</strong>
+                        <span>{caminho}</span>
+                        <em>{presente ? 'já detectado' : 'será preparado no setup'}</em>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="actions-row split">
+                    <button type="button" className="secondary" onClick={() => setEtapaOnboarding('workspace')}>Voltar</button>
+                    <button type="button" onClick={inicializarWorkspace} disabled={!estado.workspaceAberto || !setup.nomeProjeto.trim()}>
+                      Criar estrutura do QAssistant
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
           </div>
         ) : (
@@ -745,7 +977,7 @@ export function App(): ReactElement {
                       {estado.configuracao?.openProject.habilitado ? `${estado.openprojectTasks.length} Atividades` : 'Inativo'}
                     </strong>
                     <span className="summary-card__meta">
-                      {estado.configuracao?.openProject.habilitado ? 'Polling ativo' : 'Bypass habilitado'}
+                      {estado.configuracao?.openProject.habilitado ? 'Consulta sob demanda' : 'Integração opcional'}
                     </span>
                   </div>
                 </div>
@@ -2391,7 +2623,7 @@ export function App(): ReactElement {
                 <section className="gemini-config-section" style={{ marginTop: '12px', borderTop: '1px solid var(--qa-border)', paddingTop: '12px' }}>
                   <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Configuração OpenProject (API Key)</h3>
                   <p style={{ margin: 0, fontSize: '11px', color: 'var(--qa-muted)' }}>
-                    Chave de API do para integração com o OpenProject da Ormel.
+                    Token de acesso salvo com segurança nos secrets do VS Code.
                   </p>
                   <div className="form-grid" style={{ marginTop: '4px' }}>
                     <label style={{ fontSize: '11px' }}>
@@ -2407,25 +2639,28 @@ export function App(): ReactElement {
                       />
                     </label>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '11px', color: opApiKeySalva || estado.openProjectKeyPresente ? 'var(--qa-success)' : 'var(--qa-muted)' }}>
                       {opApiKeySalva ? 'Chave salva com sucesso!' : estado.openProjectKeyPresente ? 'Chave OpenProject configurada' : 'Nenhuma chave configurada'}
                     </span>
-                    <button
-                      type="button"
-                      style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px' }}
-                      onClick={() => {
-                        if (!editOpApiKey.trim()) {
-                          setMensagem('Insira um valor de API Key válido.');
-                          return;
-                        }
-                        enviar({ tipo: 'config.salvarChaveOpenProject', chave: editOpApiKey.trim() });
-                        setEditOpApiKey('');
-                        setOpOpApiKeySalva(true);
-                      }}
-                    >
-                      Salvar Chave OpenProject
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      <a href={`${OPENPROJECT_URL_PADRAO}my/access_token`} target="_blank" rel="noreferrer" className="setup-inline-link">Ainda não tem um token?</a>
+                      <button
+                        type="button"
+                        style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px' }}
+                        onClick={() => {
+                          if (!editOpApiKey.trim()) {
+                            setMensagem('Insira um valor de API Key válido.');
+                            return;
+                          }
+                          enviar({ tipo: 'config.salvarChaveOpenProject', chave: editOpApiKey.trim() });
+                          setEditOpApiKey('');
+                          setOpOpApiKeySalva(true);
+                        }}
+                      >
+                        Salvar token OpenProject
+                      </button>
+                    </div>
                   </div>
                 </section>
 
@@ -2443,18 +2678,9 @@ export function App(): ReactElement {
                       Nome do projeto
                       <input value={setup.nomeProjeto} onChange={(evento) => atualizarSetup('nomeProjeto', evento.target.value)} />
                     </label>
-                    <label>
-                      Raiz do código
-                      <input value={setup.raizCodigo} onChange={(evento) => atualizarSetup('raizCodigo', evento.target.value)} />
-                    </label>
-                    <label>
-                      Frontend
-                      <input placeholder="Opcional" value={setup.frontend || ''} onChange={(evento) => atualizarSetup('frontend', evento.target.value)} />
-                    </label>
-                    <label>
-                      Backend
-                      <input placeholder="Opcional" value={setup.backend || ''} onChange={(evento) => atualizarSetup('backend', evento.target.value)} />
-                    </label>
+                    {renderCampoDiretorio('Raiz do código', 'raizCodigo')}
+                    {renderCampoDiretorio('Frontend', 'frontend', 'Opcional')}
+                    {renderCampoDiretorio('Backend', 'backend', 'Opcional')}
                   </div>
 
                   <div className="toggle-row" style={{ display: 'flex', gap: '12px', margin: '4px 0' }}>
@@ -2474,24 +2700,44 @@ export function App(): ReactElement {
                       Ativar integração com OpenProject
                     </label>
                     {setup.openProjectHabilitado && (
+                      <>
                       <div className="form-grid" style={{ marginTop: '8px' }}>
                         <label style={{ fontSize: '11px' }}>
                           URL do OpenProject
                           <input value={setup.openProjectUrlBase || ''} onChange={(evento) => atualizarSetup('openProjectUrlBase', evento.target.value)} />
                         </label>
-                        <label style={{ fontSize: '11px' }}>
-                          ID do projeto
-                          <input value={setup.openProjectProjetoId || ''} onChange={(evento) => atualizarSetup('openProjectProjetoId', evento.target.value)} />
-                        </label>
-                        <label style={{ fontSize: '11px' }}>
-                          Polling em segundos
-                          <input type="number" min={15} value={setup.intervaloPollingSegundos} onChange={(evento) => atualizarSetup('intervaloPollingSegundos', numero(evento.target.value, 60))} />
-                        </label>
+                        {projetosOpenProjectDisponiveis.length > 0 ? (
+                          <label style={{ fontSize: '11px' }}>
+                            Projeto no OpenProject
+                            <select value={setup.openProjectProjetoId || ''} onChange={(evento) => atualizarSetup('openProjectProjetoId', evento.target.value)}>
+                              {projetosOpenProjectDisponiveis.map((projeto) => (
+                                <option key={projeto.identificador} value={projeto.identificador}>
+                                  {projeto.nome}{projeto.identificador !== projeto.nome ? ` (${projeto.identificador})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : (
+                          <label style={{ fontSize: '11px' }}>
+                            Projeto no OpenProject
+                            <input value={setup.openProjectProjetoId || ''} onChange={(evento) => atualizarSetup('openProjectProjetoId', evento.target.value)} placeholder="Clique em carregar projetos para selecionar" />
+                          </label>
+                        )}
                         <label style={{ fontSize: '11px' }}>
                           Commits padrão
                           <input type="number" min={1} value={setup.commitsPadrao} onChange={(evento) => atualizarSetup('commitsPadrao', numero(evento.target.value, 10))} />
                         </label>
                       </div>
+                      <div className="setup-inline-help" style={{ marginTop: '8px' }}>
+                        <span>Use o token salvo para carregar os projetos disponíveis e escolher um deles.</span>
+                        <button type="button" className="secondary" style={{ minHeight: '22px', fontSize: '11px' }} onClick={carregarProjetosOpenProject}>Carregar projetos</button>
+                      </div>
+                      {validacaoOpenProject.status !== 'ocioso' && (
+                        <div className={`inline-alert ${validacaoOpenProject.status === 'sucesso' ? 'success' : validacaoOpenProject.status === 'erro' ? 'danger' : 'info'}`} style={{ marginTop: '8px' }}>
+                          <span>{validacaoOpenProject.status === 'carregando' ? 'Validando...' : validacaoOpenProject.mensagem}</span>
+                        </div>
+                      )}
+                      </>
                     )}
                   </div>
 
@@ -3043,7 +3289,7 @@ function preencherSetupComEstado(atual: SetupWorkspace, estado: EstadoPainel): S
   const configuracao = estado.configuracao;
   if (!configuracao) {
     const nomeProjeto = estado.raizWorkspace.split('/').filter(Boolean).pop() || atual.nomeProjeto;
-    return { ...atual, nomeProjeto };
+    return { ...atual, nomeProjeto, openProjectUrlBase: atual.openProjectUrlBase || OPENPROJECT_URL_PADRAO };
   }
 
   return {
@@ -3054,7 +3300,7 @@ function preencherSetupComEstado(atual: SetupWorkspace, estado: EstadoPainel): S
     criarContextoProjeto: configuracao.setup.criarContextoProjeto,
     criarAssetsAgent: configuracao.setup.criarAssetsAgent,
     openProjectHabilitado: configuracao.openProject.habilitado,
-    openProjectUrlBase: configuracao.openProject.urlBase || '',
+    openProjectUrlBase: configuracao.openProject.urlBase || OPENPROJECT_URL_PADRAO,
     openProjectProjetoId: configuracao.openProject.projetoId || '',
     intervaloPollingSegundos: configuracao.openProject.intervaloPollingSegundos,
     commitsPadrao: configuracao.resumos.commitsPadrao,

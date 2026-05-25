@@ -24,9 +24,10 @@
 - `qassistant.abrirPainel`
 - `qassistant.inicializarWorkspace`
 - `qassistant.atualizarPainel`
+- `qassistant.abrirTesteEmAba`
 
 Observacao: os comandos registrados no manifest da extensao ficam em
-`packages/extensao-vscode/package.json` e, na v0.1.x, sao exatamente os tres acima.
+`packages/extensao-vscode/package.json` e, na v0.1.x, sao exatamente os quatro acima.
 
 ## Mensagens implementadas
 
@@ -36,6 +37,7 @@ type MensagemWebviewParaHost =
 	| { tipo: 'workspace.inicializar'; setup: SetupWorkspace }
 	| { tipo: 'painel.atualizar' }
 	| { tipo: 'workspace.abrirCaminho'; caminhoRelativo: string }
+	| { tipo: 'workspace.selecionarDiretorio'; campo: 'raizCodigo' | 'frontend' | 'backend'; caminhoAtual?: string }
 	| { tipo: 'validacao.criarRascunho'; titulo: string }
 	| { tipo: 'validacao.criarComCommits'; titulo: string; hashes: string[] }
 	| { tipo: 'git.carregarCommits'; limite: number }
@@ -45,23 +47,43 @@ type MensagemWebviewParaHost =
 	| { tipo: 'openproject.obterStatus'; taskId: string }
 	| { tipo: 'openproject.listarTasks' }
 	| { tipo: 'openproject.obterDetalhes'; taskId: string }
+	| { tipo: 'openproject.validarConexao'; urlBase: string; projetoRef?: string; token?: string }
 	| { tipo: 'config.salvarChaveGemini'; chave: string }
 	| { tipo: 'config.salvarChaveOpenProject'; chave: string }
 	| { tipo: 'validacao.selecionarPacote'; caminhoRelativo: string }
 	| { tipo: 'validacao.excluirPacote'; caminhoRelativo: string }
 	| { tipo: 'testes.executar'; categoria: string; nomeExecucao?: string }
-	| { tipo: 'testes.limparHistorico' };
+	| { tipo: 'testes.limparHistorico' }
+	| { tipo: 'testes.abrirEmAba' }
+	| { tipo: 'testes.fecharAba' }
+	| { tipo: 'testes.analisarComIA' }
+	| { tipo: 'testes.verRunDetalhes'; runId: string }
+	| { tipo: 'openproject.comentarTask'; taskId: string; texto: string }
+	| { tipo: 'openproject.alterarStatusTask'; taskId: string; statusHref: string; lockVersion: number };
+
+type MensagemHostParaWebview =
+	| { tipo: 'estado.atualizado'; estado: EstadoPainel }
+	| { tipo: 'workspace.diretorioSelecionado'; campo: 'raizCodigo' | 'frontend' | 'backend'; caminho: string }
+	| { tipo: 'openproject.validacaoConcluida'; sucesso: boolean; mensagem: string; projeto?: { nome: string; identificador?: string }; projetosDisponiveis?: { nome: string; identificador: string }[] }
+	| { tipo: 'notificacao.info'; mensagem: string }
+	| { tipo: 'notificacao.erro'; mensagem: string };
 ```
 
 Fonte de verdade dos contratos: `packages/extensao-vscode/src/contratos/mensagens.ts`.
 
 `workspace.abrirCaminho` abre arquivo no editor do VS Code ou lista diretorio no navegador interno. O host valida que o caminho permanece dentro do workspace atual.
 
+`workspace.selecionarDiretorio` abre o picker nativo do VS Code para selecionar uma pasta dentro do workspace atual e devolve o caminho relativo em `workspace.diretorioSelecionado`.
+
 `validacao.criarRascunho` cria uma rodada em `Qassistant-testes/validacoes/` e atualiza `ultimoPacoteValidacao` no estado do painel.
 
 `validacao.criarComCommits` cria uma rodada usando hashes carregados pela integracao Git.
 
 `git.carregarCommits` le commits recentes via `git log` no workspace aberto.
+
+`openproject.validarConexao` testa URL e token durante o onboarding ou na aba de configuracao. Quando a conexao e valida, o host tambem lista os projetos disponiveis para esse acesso; `projetoRef` continua aceitando nome amigavel ou identificador tecnico como compatibilidade para fluxos que ainda precisem resolver um projeto explicitamente.
+
+`openproject.validacaoConcluida` devolve para a webview o resultado da validacao e, quando disponivel, a lista de projetos acessiveis para selecao imediata sem depender de notificacoes genericas.
 
 ## Contratos host/webview
 
@@ -96,11 +118,14 @@ Campos operacionais atuais (recorte simplificado):
 
 ```ts
 interface EstadoPainel {
+	produto: 'QAssistant';
+	versaoExtensao: string;
+	workspaceAberto: boolean;
 	workspaceInicializado: boolean;
 	raizTestes: string;
 	raizContexto: string;
-	configuracao?: ConfiguracaoQAssistant;
-	estrutura?: EstruturaWorkspaceQAssistant;
+	configuracao: ConfiguracaoQAssistant | null;
+	estrutura: EstruturaWorkspaceQAssistant | null;
 	assets: {
 		logoUri: string;
 	};
@@ -113,6 +138,10 @@ interface EstadoPainel {
 	navegador: NavegadorQAssistant | null;
 	ultimosArquivosCriados: string[];
 	ultimosArquivosPreservados: string[];
+	geminiKeyPresente: boolean;
+	openProjectKeyPresente: boolean;
+	openprojectTasks: TaskOpenProjectQA[];
+	execucaoTestes?: ExecucaoTestes;
 	ultimoPacoteValidacao?: {
 		id: string;
 		caminhoRelativo: string;

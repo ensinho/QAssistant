@@ -79,6 +79,8 @@ Aplicacoes recentes dessas regras:
 - o QA Runner dedicado deve usar o shell compartilhado `.qa-runner`, com sidebar empilhavel em largura menor e cabecalhos internos `.qa-runner__panel-*`;
 - cards de resumo e cards de recursos da tela principal devem usar as familias `.summary-card*` e `.resource-card*` em vez de variantes inline locais;
 - listas resumidas do OpenProject devem reutilizar `.op-task-summary-row`, `.badge-small` e `scroll-region` para evitar nova duplicacao visual.
+- o onboarding inicial deve usar `setup-wizard*`, `setup-step-pill`, `setup-summary-grid`, `setup-checklist-grid` e `setup-inline-help` para manter o primeiro uso compacto e guiado;
+- campos de caminho do setup devem usar `setup-path-picker` e o botao compartilhado de selecao para manter input e picker alinhados no onboarding e na configuracao;
 - a lista de commits do wizard deve usar `commit-list-shell`, `commit-item*` e `commit-repo-badge` para manter padding, densidade e selecao consistentes;
 - o runner embutido da aba principal deve convergir para as primitivas `qa-inline-runner*`, reaproveitando a linguagem de metricas, logs, estados e historico do runner dedicado;
 - modais do OpenProject devem preferir `op-modal-zone*`, `op-comment-card`, `op-summary-box` e `field-stack` em vez de novas superfices inline.
@@ -117,6 +119,13 @@ Regras:
 - empty state: mensagem curta + proxima acao operacional;
 - erro: `.inline-alert.danger` ou `.error-state`, sem texto generico demais;
 - sucesso: `badge` ou `state-chip` sem exagero visual.
+
+No primeiro uso:
+
+- o onboarding deve mostrar uma etapa por vez;
+- a configuracao do OpenProject deve vir ativa por padrao, mas continuar podendo ser desligada sem quebrar o setup;
+- o token precisa ser solicitado antes da escolha do projeto, para permitir carregar a lista real de projetos visiveis para aquele acesso;
+- a ajuda para token precisa ficar visivel no proprio passo, sem exigir scroll longo.
 
 ## Overflow e leitura de conteudo longo
 

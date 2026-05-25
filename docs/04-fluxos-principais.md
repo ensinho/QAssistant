@@ -3,14 +3,15 @@
 ## 1. Setup inicial guiado
 
 1. Usuario abre o painel do QAssistant.
-2. Empty state informa que o workspace ainda nao foi inicializado.
-3. Usuario inicia setup.
-4. QAssistant coleta caminhos customizados do projeto.
-5. QAssistant configura OpenProject quando o usuario quiser.
-6. QAssistant cria `Qassistant-testes/`.
-7. QAssistant cria `docs/contexto/` na raiz do projeto alvo.
-8. QAssistant cria `.github/instructions/` e `.github/skills/` quando necessario.
-9. Painel muda para estado pronto.
+2. Se nao houver configuracao, o painel entra em modo de onboarding guiado e ocupa o fluxo principal.
+3. A etapa inicial explica o produto, as integracoes disponiveis e o que sera criado no workspace.
+4. A etapa de OpenProject vem ativa por padrao, preenche a URL base, pede o token primeiro e oferece link direto para gerar um novo token.
+5. Depois de validar o token, QAssistant lista os projetos visiveis para esse acesso e permite selecionar um deles sem digitar identificadores manualmente.
+6. A etapa de projeto coleta o essencial: nome, caminhos principais e criacao opcional de contexto/instructions/skills, incluindo selecao de pastas pelo picker nativo do VS Code.
+7. QAssistant cria `Qassistant-testes/`.
+8. QAssistant cria `docs/contexto/` com `INDEX.md` na raiz do projeto alvo, quando habilitado.
+9. QAssistant cria `.github/instructions/` e `.github/skills/` quando necessario.
+10. Painel muda para estado pronto.
 
 ## 2. Resumo QA por commits
 
@@ -45,17 +46,20 @@
 1. Usuario abre modulo Testes.
 2. QAssistant mostra mapa, contadores, tipos e estrutura.
 3. Usuario escolhe tipo de teste.
-4. QAssistant oferece prompt especifico do tipo.
-5. IA pode sugerir cenarios e lacunas.
+4. QAssistant oferece prompt especifico do tipo com leitura obrigatoria de regras, mapa, contexto e instructions/skills.
+5. IA pode sugerir cenarios e lacunas, mas sempre preservando revisao humana.
 6. Usuario executa testes existentes ou abre pastas/arquivos para edicao.
+7. Quando a cobertura muda, `Qassistant-testes/mapa-de-testes.yaml` deve ser atualizado na mesma entrega.
 
 ## 5. OpenProject
 
-1. Usuario configura URL, projeto e credenciais.
-2. QAssistant testa acesso.
-3. QAssistant cria, vincula ou atualiza task de validacao.
-4. QAssistant lista tasks e busca status/detalhes sob demanda no painel.
-5. Snapshots sao salvos no pacote de validacao.
+1. Usuario configura URL e token de acesso.
+2. QAssistant testa a credencial em `/api/v3/users/me` e salva o token validado nos secrets do VS Code.
+3. A mesma validacao consulta a lista de projetos disponiveis para o token e devolve a selecao para a webview.
+4. Usuario escolhe o projeto diretamente da lista carregada; quando necessario, o identificador tecnico continua aceito como compatibilidade.
+5. QAssistant cria, vincula ou atualiza task de validacao.
+6. QAssistant lista tasks e busca status/detalhes sob demanda no painel.
+7. Snapshots sao salvos no pacote de validacao.
 
 ## Regra de fluxo dinamico
 

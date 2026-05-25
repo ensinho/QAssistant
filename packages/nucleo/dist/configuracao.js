@@ -65,7 +65,7 @@ function criarConfiguracaoPadrao(raizWorkspace) {
             raizContexto: tipos_1.RAIZ_CONTEXTO_PROJETO,
         },
         openProject: {
-            habilitado: false,
+            habilitado: true,
             intervaloPollingSegundos: 60,
         },
         resumos: {

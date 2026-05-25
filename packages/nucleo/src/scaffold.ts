@@ -103,6 +103,7 @@ function escreverPromptsPorTipo(raizWorkspace: string, criados: string[], preser
 
 function criarContextoProjeto(raizWorkspace: string, criados: string[], preservados: string[]): void {
   garantirDiretorio(raizWorkspace, RAIZ_CONTEXTO_PROJETO, criados, preservados);
+  escreverArquivoSeAusente(raizWorkspace, `${RAIZ_CONTEXTO_PROJETO}/INDEX.md`, contextoIndex(), criados, preservados);
   escreverArquivoSeAusente(raizWorkspace, `${RAIZ_CONTEXTO_PROJETO}/README.md`, contextoReadme(), criados, preservados);
   escreverArquivoSeAusente(raizWorkspace, `${RAIZ_CONTEXTO_PROJETO}/mapa-do-projeto.md`, mapaProjeto(), criados, preservados);
   escreverArquivoSeAusente(raizWorkspace, `${RAIZ_CONTEXTO_PROJETO}/regras-de-negocio.md`, regrasNegocio(), criados, preservados);
@@ -151,6 +152,8 @@ Esta pasta concentra a operacao de QA do projeto.
 - registrar regras em \`regras-de-teste.md\`;
 - guardar prompts operacionais gerais e especificos;
 - persistir pacotes de validacao ligados a commits e OpenProject.
+
+Antes de criar ou mover testes, consulte \`regras-de-teste.md\`, o contexto do projeto e as instructions/skills relevantes em \`.github/\`.
 `;
 }
 
@@ -164,9 +167,29 @@ testes: []
 function regrasDeTeste(): string {
   return `# Regras de teste
 
-- Sempre leia \`Qassistant-testes/mapa-de-testes.yaml\` antes de criar novos testes.
+## Leitura obrigatoria antes de agir
+
+- Leia nesta ordem: \`Qassistant-testes/mapa-de-testes.yaml\`, \`Qassistant-testes/regras-de-teste.md\`, \`docs/context/INDEX.md\` quando existir, senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+- Leia tambem os arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\` antes de criar, mover ou revisar testes.
+- Se existir rodada ativa em \`Qassistant-testes/validacoes/\`, leia o pacote atual antes de propor novos testes.
+
+## Onde criar cada tipo de teste
+
+- Testes unitarios ficam em \`Qassistant-testes/testes-unitarios/backend/\` ou \`Qassistant-testes/testes-unitarios/frontend/\`.
+- Testes de integracao ficam em \`Qassistant-testes/testes-de-integracao/backend/\` ou \`Qassistant-testes/testes-de-integracao/frontend/\`.
+- Testes de componentes ficam em \`Qassistant-testes/testes-de-componentes/frontend/\`.
+- Testes de ponta a ponta ficam em \`Qassistant-testes/testes-de-ponta-a-ponta/fluxos/\`. Arquivos auxiliares so devem ir para \`auxiliares/\` ou \`dados/\` quando forem suporte do fluxo.
+- Testes de usabilidade ficam em \`Qassistant-testes/testes-de-usabilidade/fluxos/\`.
+- Testes de acessibilidade ficam em \`Qassistant-testes/testes-de-acessibilidade/fluxos/\`.
+- Testes de desempenho ficam em \`Qassistant-testes/testes-de-desempenho/scripts/\`.
+- Testes de carga ficam em \`Qassistant-testes/testes-de-carga/scripts/\`.
+
+## Regras operacionais
+
 - Use nomenclatura clara em pt-BR.
 - Antes de criar um novo teste, verifique se ja existe cobertura similar.
+- Nao crie arquivos fora da pasta do tipo de teste.
+- Ao criar, mover, remover ou consolidar testes, atualize \`Qassistant-testes/mapa-de-testes.yaml\` na mesma entrega.
 - Prompts gerais ficam em \`Qassistant-testes/prompts/\`.
 - Prompts especificos ficam dentro da pasta do tipo de teste.
 - Validacoes por commits devem ser persistidas em \`Qassistant-testes/validacoes/\`.
@@ -180,9 +203,15 @@ name: guia-validacao-commits
 description: Gera um guia de validacao para uma rodada de commits usando o contexto do projeto e a estrutura de QA.
 ---
 
-Leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\` e os arquivos do pacote de validacao atual.
+Antes de responder, leia obrigatoriamente:
 
-Monte um guia de validacao em pt-BR com riscos, cenarios principais, regressao, tipos de teste recomendados e evidencias esperadas.
+1. \`Qassistant-testes/regras-de-teste.md\`.
+2. \`Qassistant-testes/mapa-de-testes.yaml\`.
+3. \`docs/context/INDEX.md\` quando existir; senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+4. Os arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\`.
+5. Os artefatos do pacote de validacao atual.
+
+Monte um guia de validacao em pt-BR com riscos, cenarios principais, regressao, tipos de teste recomendados, evidencias esperadas e apontamentos de quais artefatos precisam ser atualizados.
 `;
 }
 
@@ -192,7 +221,14 @@ name: revisar-cobertura-testes
 description: Revisa a cobertura atual de testes para uma mudanca ou pacote de validacao.
 ---
 
-Analise os caminhos indicados e responda o que ja possui cobertura, o que precisa de novos testes e quais artefatos devem ser atualizados no mapa.
+Antes de responder, leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\`, \`docs/context/INDEX.md\` quando existir, os arquivos relevantes em \`.github/instructions/\`, as skills relevantes em \`.github/skills/\` e o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+
+Analise os caminhos indicados e responda:
+
+- o que ja possui cobertura;
+- o que precisa de novos testes;
+- em quais diretorios esses testes devem ser criados;
+- quais artefatos precisam ser atualizados no mapa e na rodada atual.
 `;
 }
 
@@ -202,7 +238,9 @@ name: sugerir-cenarios-qa
 description: Sugere cenarios de QA a partir de uma mudanca ou pacote validado.
 ---
 
-Considere os commits selecionados, os riscos e a estrutura \`Qassistant-testes/\`. Entregue cenarios criticos, regressao, ponta a ponta, integracao e observacoes de evidencias.
+Antes de responder, leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\`, \`docs/context/INDEX.md\` quando existir, os arquivos relevantes em \`.github/instructions/\`, as skills relevantes em \`.github/skills/\` e o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+
+Considere os commits selecionados, os riscos e a estrutura \`Qassistant-testes/\`. Entregue cenarios criticos, regressao, ponta a ponta, integracao, observacoes de evidencias e o diretorio mais adequado para cada novo teste sugerido.
 `;
 }
 
@@ -223,14 +261,55 @@ Itens recomendados por pacote:
 }
 
 function promptTipoTeste(tipo: string): string {
+  const destinoPorTipo: Record<string, string> = {
+    unitario: '`Qassistant-testes/testes-unitarios/backend/` ou `Qassistant-testes/testes-unitarios/frontend/`',
+    integracao: '`Qassistant-testes/testes-de-integracao/backend/` ou `Qassistant-testes/testes-de-integracao/frontend/`',
+    componente: '`Qassistant-testes/testes-de-componentes/frontend/`',
+    'ponta a ponta': '`Qassistant-testes/testes-de-ponta-a-ponta/fluxos/`',
+    usabilidade: '`Qassistant-testes/testes-de-usabilidade/fluxos/`',
+    acessibilidade: '`Qassistant-testes/testes-de-acessibilidade/fluxos/`',
+    desempenho: '`Qassistant-testes/testes-de-desempenho/scripts/`',
+    carga: '`Qassistant-testes/testes-de-carga/scripts/`',
+  };
+
   return `---
 name: criar-teste-${tipo.replace(/ /g, '-')}
 description: Prompt base para criar ou revisar um teste de ${tipo}.
 ---
 
-Leia \`Qassistant-testes/regras-de-teste.md\`, \`Qassistant-testes/mapa-de-testes.yaml\` e o pacote de validacao atual, quando existir.
+Antes de responder, leia obrigatoriamente:
 
-Crie ou revise um teste de ${tipo} em pt-BR, mantendo o arquivo de destino e as regras de organizacao da pasta atual. Nao aplique mudancas automaticamente sem revisao humana.
+- \`Qassistant-testes/regras-de-teste.md\`.
+- \`Qassistant-testes/mapa-de-testes.yaml\`.
+- \`docs/context/INDEX.md\` quando existir; senao \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`.
+- Os arquivos relevantes em \`.github/instructions/\`.
+- As skills relevantes em \`.github/skills/\`.
+- O pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
+- Guias especificos da categoria atual, quando existirem.
+
+Crie ou revise um teste de ${tipo} em pt-BR seguindo estas regras:
+
+- escolha o destino correto em ${destinoPorTipo[tipo] || '`Qassistant-testes/`'};
+- nao crie arquivos fora da estrutura esperada;
+- verifique se ja existe cobertura similar antes de abrir um novo arquivo;
+- atualize \`Qassistant-testes/mapa-de-testes.yaml\` quando houver nova cobertura, remocao ou reorganizacao;
+- preserve rastreabilidade com a validacao atual quando houver;
+- nao aplique mudancas automaticamente sem revisao humana.
+`;
+}
+
+function contextoIndex(): string {
+  return `# Indice de contexto do projeto
+
+Leia este diretorio antes de criar ou revisar testes.
+
+Ordem sugerida:
+
+1. \`README.md\`
+2. \`mapa-do-projeto.md\`
+3. \`regras-de-negocio.md\`
+
+Se o projeto tambem possuir \`docs/context/INDEX.md\` na raiz, priorize esse indice como fonte principal e use este diretorio como complemento operacional.
 `;
 }
 
@@ -241,6 +320,7 @@ Esta pasta registra contexto do projeto alvo para QA, agents e manutencao do QAs
 
 Arquivos iniciais:
 
+- INDEX.md
 - mapa-do-projeto.md
 - regras-de-negocio.md
 `;
@@ -270,7 +350,9 @@ Antes de criar, revisar ou atualizar testes, leia:
 
 - \`Qassistant-testes/regras-de-teste.md\`;
 - \`Qassistant-testes/mapa-de-testes.yaml\`;
-- arquivos relevantes em \`docs/contexto/\`;
+- \`docs/context/INDEX.md\`, quando existir;
+- \`docs/contexto/INDEX.md\` ou \`docs/contexto/README.md\`, quando \`docs/context/INDEX.md\` nao existir;
+- arquivos relevantes em \`.github/instructions/\` e \`.github/skills/\`;
 - o pacote atual em \`Qassistant-testes/validacoes/\`, quando existir.
 
 Regras:
@@ -279,6 +361,8 @@ Regras:
 - nao crie novos testes sem verificar cobertura existente;
 - mantenha nomenclatura em pt-BR;
 - trate \`Qassistant-testes/\` como fonte operacional de QA.
+- nao crie arquivos fora da pasta correta do tipo de teste;
+- ao criar, mover ou remover testes, atualize \`Qassistant-testes/mapa-de-testes.yaml\` na mesma entrega.
 `;
 }
 
@@ -289,11 +373,13 @@ Use quando precisar transformar uma rodada de commits em plano ou pacote de vali
 
 Fluxo esperado:
 
-1. ler o pacote de validacao atual;
-2. verificar a task vinculada no OpenProject;
-3. revisar o mapa de testes;
-4. propor cenarios, riscos e evidencias;
-5. manter tudo revisavel em pt-BR.
+1. ler \`Qassistant-testes/regras-de-teste.md\` e \`Qassistant-testes/mapa-de-testes.yaml\`;
+2. ler \`docs/context/INDEX.md\` quando existir, ou o contexto em \`docs/contexto/\`;
+3. consultar instructions e skills relevantes em \`.github/\`;
+4. ler o pacote de validacao atual;
+5. verificar a task vinculada no OpenProject;
+6. propor cenarios, riscos, evidencias e atualizacoes de artefato;
+7. manter tudo revisavel em pt-BR.
 `;
 }
 
@@ -304,11 +390,13 @@ Use quando precisar criar, revisar, reorganizar ou executar testes dentro de \`Q
 
 Prioridades:
 
-1. respeitar o mapa de testes e as regras;
+1. ler mapa, regras, contexto e instructions antes de alterar arquivos;
 2. identificar se o teste ja existe;
-3. usar prompts especificos do tipo;
-4. registrar evidencias e resultados;
-5. manter rastreabilidade com pacotes de validacao quando houver.
+3. criar arquivos apenas no diretorio correto do tipo;
+4. usar prompts especificos da categoria;
+5. atualizar \`Qassistant-testes/mapa-de-testes.yaml\` quando a cobertura mudar;
+6. registrar evidencias e resultados;
+7. manter rastreabilidade com pacotes de validacao quando houver.
 `;
 }
 

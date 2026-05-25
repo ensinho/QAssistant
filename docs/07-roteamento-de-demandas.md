@@ -26,6 +26,7 @@ Sempre comece pelos contratos e pelo fluxo real do host antes de alterar UI ou g
 - Orquestracao de setup: `packages/extensao-vscode/src/host/painel/provedor-painel.ts`.
 - Criacao de estrutura: `packages/nucleo/src/scaffold.ts`.
 - Modelo de configuracao: `packages/nucleo/src/configuracao.ts`.
+- Onboarding guiado e etapas do primeiro uso: `packages/extensao-vscode/src/webview/modulos/App.tsx`.
 - Regra: nunca quebrar compatibilidade de `.qassistant/config.json` sem migracao explicita.
 
 ### 4) Pacotes de validacao por commits
@@ -46,6 +47,7 @@ Sempre comece pelos contratos e pelo fluxo real do host antes de alterar UI ou g
 - Chave/segredo: `SecretStorage` no host (`qassistant.openProjectApiKey`).
 - API e sincronizacao: `packages/extensao-vscode/src/host/painel/provedor-painel.ts`.
 - Estado e cards: `packages/extensao-vscode/src/webview/modulos/App.tsx`.
+- Validacao de conexao durante onboarding/configuracao: contrato em `packages/extensao-vscode/src/contratos/mensagens.ts`, host em `provedor-painel.ts` e UI em `App.tsx`.
 - Regra: na v0.1.x a atualizacao e sob demanda; polling automatico ainda e evolucao futura.
 
 ### 7) Execucao de testes pelo painel
