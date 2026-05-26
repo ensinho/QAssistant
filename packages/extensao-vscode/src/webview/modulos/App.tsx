@@ -1912,25 +1912,6 @@ export function App(): ReactElement {
                       </button>
                     </div>
 
-                    {/* Card Estrutura Geral */}
-                    <div className="op-card resource-card">
-                      <div className="resource-card__header">
-                        <IconSettings />
-                        <strong>Estrutura Geral</strong>
-                      </div>
-                      <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
-                        Módulo completo operacional de Qassistant-testes.
-                      </p>
-                      <button
-                        type="button"
-                        className="secondary resource-card__action"
-                        onClick={() => enviar({ tipo: 'workspace.abrirCaminho', caminhoRelativo: 'testes/' })}
-                      >
-                        <IconFile />
-                        <span>Abrir Pasta</span>
-                      </button>
-                    </div>
-
                     {/* Card Relatórios & Histórico */}
                     <div className="op-card resource-card">
                       <div className="resource-card__header">
