@@ -111,6 +111,7 @@ function normalizarConfiguracao(raizWorkspace, configuracao) {
         backend: normalizarCaminhoOpcional(raizWorkspace, configuracao.caminhos.backend),
         raizTestes: tipos_1.RAIZ_TESTES_QASSISTANT,
         raizContexto: tipos_1.RAIZ_CONTEXTO_PROJETO,
+        repositorios: normalizarListaCaminhos(raizWorkspace, configuracao.caminhos?.repositorios),
     };
     return {
         versao: 1,
@@ -155,6 +156,37 @@ function normalizarCaminhoOpcional(raizWorkspace, caminhoInformado) {
         return undefined;
     }
     return normalizarCaminhoRelativo(raizWorkspace, bruto);
+}
+/**
+ * Normaliza uma lista de caminhos de repositório informada pelo usuário:
+ * descarta vazios, valida que ficam dentro do workspace e remove duplicados.
+ * Entradas inválidas (fora do workspace) são ignoradas em vez de quebrar o load.
+ * Retorna `undefined` quando a lista efetiva ficar vazia (cai na auto-descoberta).
+ */
+function normalizarListaCaminhos(raizWorkspace, lista) {
+    if (!Array.isArray(lista) || lista.length === 0) {
+        return undefined;
+    }
+    const vistos = new Set();
+    const resultado = [];
+    for (const entrada of lista) {
+        const bruto = limparString(entrada);
+        if (!bruto)
+            continue;
+        let normalizado;
+        try {
+            normalizado = normalizarCaminhoRelativo(raizWorkspace, bruto);
+        }
+        catch {
+            // Caminho fora do workspace — ignora silenciosamente.
+            continue;
+        }
+        if (normalizado && !vistos.has(normalizado)) {
+            vistos.add(normalizado);
+            resultado.push(normalizado);
+        }
+    }
+    return resultado.length > 0 ? resultado : undefined;
 }
 function normalizarInteiro(valor, fallback, minimo) {
     const numero = Number(valor);

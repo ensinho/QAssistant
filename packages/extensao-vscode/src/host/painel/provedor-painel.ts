@@ -456,7 +456,7 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
   }
 
   private criarEstado(): EstadoPainel {
-    const versaoExtensao = String(this.contexto.extension.packageJSON.version || '0.1.0');
+    const versaoExtensao = String(this.contexto.extension.packageJSON.version || '2.0.0');
     const estado = criarEstadoInicial(versaoExtensao);
     const raizWorkspace = obterRaizWorkspace();
     if (!raizWorkspace) return estado;
@@ -691,6 +691,48 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     });
   }
 
+  /**
+   * Resolve os diretórios Git a escanear.
+   * - Se `repositoriosConfigurados` tiver entradas, usa exatamente esses caminhos
+   *   (relativos à raiz do workspace), mantendo apenas os que contêm `.git`.
+   * - Caso contrário, descobre automaticamente: a própria raiz (se for repo) e
+   *   cada subpasta imediata que contenha `.git`.
+   * Sempre inclui a raiz do workspace quando ela for um repositório Git.
+   */
+  private descobrirDiretoriosGit(raizWorkspace: string, repositoriosConfigurados: string[]): string[] {
+    const candidatos = new Set<string>();
+
+    const raizEhRepo = fs.existsSync(path.join(raizWorkspace, '.git'));
+    if (raizEhRepo) {
+      candidatos.add(raizWorkspace);
+    }
+
+    if (repositoriosConfigurados.length > 0) {
+      // Modo configurado: respeita a lista do usuário (já normalizada/validada).
+      for (const rel of repositoriosConfigurados) {
+        const absoluto = path.resolve(raizWorkspace, rel);
+        if (fs.existsSync(path.join(absoluto, '.git'))) {
+          candidatos.add(absoluto);
+        }
+      }
+    } else {
+      // Modo automático: subpastas imediatas que sejam repositórios Git.
+      try {
+        for (const filha of fs.readdirSync(raizWorkspace, { withFileTypes: true })) {
+          if (!filha.isDirectory() || filha.name.startsWith('.')) continue;
+          const caminhoCompleto = path.join(raizWorkspace, filha.name);
+          if (fs.existsSync(path.join(caminhoCompleto, '.git'))) {
+            candidatos.add(caminhoCompleto);
+          }
+        }
+      } catch {
+        // Ignora falhas ao listar subpastas; a raiz (se repo) ainda vale.
+      }
+    }
+
+    return Array.from(candidatos);
+  }
+
   private async carregarCommits(limite: number, atualizarDepois = true): Promise<void> {
     const raizWorkspace = obterRaizWorkspace();
     if (!raizWorkspace) {
@@ -703,39 +745,12 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     if (atualizarDepois) await this.atualizar();
 
     try {
-      // 1. Encontrar todos os repositórios Git no workspace
-      const dirsParaEscanear = [
-        raizWorkspace,
-        path.join(raizWorkspace, 'MedSystem_front'),
-        path.join(raizWorkspace, 'MedSystem_back'),
-        path.join(raizWorkspace, 'project-ai-cli'),
-        path.join(raizWorkspace, 'frontend'),
-        path.join(raizWorkspace, 'backend'),
-        path.join(raizWorkspace, 'front'),
-        path.join(raizWorkspace, 'back'),
-        path.join(raizWorkspace, 'web'),
-        path.join(raizWorkspace, 'client'),
-        path.join(raizWorkspace, 'app'),
-        path.join(raizWorkspace, 'api'),
-        path.join(raizWorkspace, 'server'),
-      ];
-
-      // Verificar subpastas imediatas se a raiz não for Git
-      if (!fs.existsSync(path.join(raizWorkspace, '.git'))) {
-        try {
-          const filhas = fs.readdirSync(raizWorkspace, { withFileTypes: true });
-          for (const filha of filhas) {
-            if (filha.isDirectory()) {
-              const caminhoCompleto = path.join(raizWorkspace, filha.name);
-              if (fs.existsSync(path.join(caminhoCompleto, '.git')) && !dirsParaEscanear.includes(caminhoCompleto)) {
-                dirsParaEscanear.push(caminhoCompleto);
-              }
-            }
-          }
-        } catch {
-          // Ignorar se falhar ao ler subpastas
-        }
-      }
+      // 1. Determinar os repositórios Git a escanear.
+      //    Prioridade: lista explícita em `.qassistant/config.json`
+      //    (caminhos.repositorios); caso ausente, descoberta automática.
+      const configuracao = carregarConfiguracaoWorkspace(raizWorkspace);
+      const repositoriosConfigurados = configuracao?.caminhos?.repositorios ?? [];
+      const dirsParaEscanear = this.descobrirDiretoriosGit(raizWorkspace, repositoriosConfigurados);
 
       const repositóriosValidos: { id: string; nome: string; caminho: string; branch: string }[] = [];
 
@@ -743,7 +758,7 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
         if (fs.existsSync(path.join(dir, '.git'))) {
           let branch = 'main';
           try {
-            const { stdout: branchStdout } = await execFileAsync('git', ['Ref-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, timeout: 2000 });
+            const { stdout: branchStdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, timeout: 2000 });
             branch = branchStdout.trim() || 'detached';
           } catch {
             try {

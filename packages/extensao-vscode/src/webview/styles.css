@@ -155,29 +155,126 @@ body,
   align-items: center;
   justify-content: space-between;
   background: var(--qa-surface-subtle);
-  border: 1px solid var(--qa-border);
-  border-radius: var(--qa-radius-sm);
-  padding: 6px var(--qa-space-3);
+  border: 1px solid color-mix(in srgb, var(--qa-border) 70%, transparent);
+  border-radius: var(--qa-radius-md);
+  padding: 8px var(--qa-space-3);
   font-size: 11px;
 }
 
 .steps-indicator .step-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--qa-muted);
+  white-space: nowrap;
+  min-width: 0;
 }
+
+/* Badge numerada (círculo) por etapa */
+.steps-indicator .step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--qa-border);
+  background: var(--qa-surface);
+  color: var(--qa-muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.steps-indicator .step-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .steps-indicator .step-item.active {
   color: var(--qa-foreground);
   font-weight: 600;
 }
+.steps-indicator .step-item.active .step-badge {
+  border-color: var(--qa-link);
+  background: var(--qa-link);
+  color: var(--qa-brand-foreground);
+  transform: scale(1.05);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qa-link) 20%, transparent);
+}
+
 .steps-indicator .step-item.completed {
   color: var(--qa-success);
+}
+.steps-indicator .step-item.completed .step-badge {
+  border-color: var(--qa-success);
+  background: var(--qa-success);
+  color: var(--qa-brand-foreground);
 }
 
 .steps-divider {
   content: "";
-  height: 1px;
+  height: 2px;
   flex: 1;
+  min-width: 8px;
+  border-radius: 999px;
   background: var(--qa-border);
-  margin: 0 var(--qa-space-3);
+  margin: 0 var(--qa-space-2);
+  transition: background 0.25s ease;
+}
+.steps-divider.filled {
+  background: color-mix(in srgb, var(--qa-success) 60%, var(--qa-border));
+}
+
+/* Rodapé da etapa "Revisar" — compacto, primário em destaque, sem quebrar */
+.revisar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qa-space-2);
+  margin-top: var(--qa-space-3);
+  flex-wrap: wrap;
+}
+
+.revisar-footer__back,
+.revisar-footer__primary > button {
+  min-height: 28px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.revisar-footer__back {
+  padding: 0 10px;
+}
+
+.revisar-footer__primary {
+  display: flex;
+  align-items: center;
+  gap: var(--qa-space-2);
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+
+.revisar-footer__primary > button {
+  padding: 0 12px;
+}
+
+/* Em painéis estreitos, o rodapé empilha e os botões ocupam a linha toda */
+@media (max-width: 340px) {
+  .revisar-footer,
+  .revisar-footer__primary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .revisar-footer__back,
+  .revisar-footer__primary > button {
+    width: 100%;
+  }
 }
 
 /* Estilos de preview consolidados */
@@ -195,6 +292,7 @@ body,
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0; /* permite que filhos truncados encolham dentro do grid */
 }
 
 .preview-grid-summary .preview-block h4 {
@@ -208,6 +306,7 @@ body,
   margin: 0;
   font-size: 12px;
   color: var(--qa-foreground);
+  overflow-wrap: anywhere; /* quebra valores longos (nomes de projeto/branch) sem vazar */
 }
 
 button {
@@ -459,17 +558,23 @@ pre,
 
 .setup-path-picker {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 36px;
   gap: var(--qa-space-2);
-  align-items: center;
+  align-items: stretch;
 }
 
 .setup-picker-button {
-  min-height: 38px;
-  white-space: nowrap;
+  width: 36px;
+  min-height: 0;
+  padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.setup-picker-button svg {
+  margin-right: 0 !important;
 }
 
 .prompt-assistido-modal__body {
@@ -704,10 +809,6 @@ pre,
     justify-content: center;
   }
 
-  .setup-path-picker {
-    grid-template-columns: 1fr;
-  }
-
   .prompt-assistido-browser__header,
   .prompt-assistido-browser__path,
   .prompt-assistido-browser__row,
@@ -831,6 +932,7 @@ h3 {
 
 .panel {
   box-shadow: var(--qa-shadow-soft);
+  padding: var(--qa-space-4);
 }
 
 .module:hover {
@@ -1023,12 +1125,22 @@ h3 {
 .commit-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--qa-space-2);
+  align-items: center;
+  gap: 6px;
+}
+
+.commit-toolbar button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+  border-radius: var(--qa-radius-sm);
 }
 
 .commit-list,
 .navigator-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--qa-space-2);
 }
 
@@ -1043,21 +1155,28 @@ h3 {
   border: 1px solid var(--qa-border);
   border-radius: var(--qa-radius-md);
   background: var(--qa-surface-subtle);
-  padding: var(--qa-space-4);
+  padding: var(--qa-space-2);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--qa-border) 35%, transparent);
 }
 
 .commit-item {
-  align-items: flex-start;
+  align-items: center;
   border: 1px solid var(--qa-border);
-  border-radius: var(--qa-radius-sm);
+  border-radius: var(--qa-radius-md);
   display: flex;
-  gap: var(--qa-space-3);
-  padding: 14px 16px;
+  gap: var(--qa-space-2);
+  padding: 9px 12px;
+  box-sizing: border-box;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
   margin: 0;
   background: var(--qa-surface);
+  min-width: 0;
+}
+
+.commit-item:hover {
+  border-color: var(--qa-border-strong);
+  background: var(--qa-surface-subtle);
 }
 
 .commit-item.selected {
@@ -1066,13 +1185,13 @@ h3 {
 }
 
 .commit-item__check {
-  margin-top: 2px;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .commit-item__content {
   display: grid;
-  gap: 6px;
+  gap: 3px;
   flex: 1;
   min-width: 0;
 }
@@ -1083,13 +1202,19 @@ h3 {
   justify-content: space-between;
   gap: var(--qa-space-2);
   width: 100%;
+  min-width: 0;
 }
 
 .commit-item__subject {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-weight: 600;
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 1.35;
   color: var(--qa-foreground);
 }
 
@@ -1098,21 +1223,21 @@ h3 {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  font-size: 9.5px;
+  font-size: 10px;
+  line-height: 1.5;
   color: var(--qa-muted);
 }
 
 .commit-repo-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
+  max-width: 40%;
   padding: 1px var(--qa-space-2);
   border-radius: 4px;
   border: 1px solid var(--qa-border);
   background: var(--qa-surface-subtle);
   color: var(--qa-muted);
   font-size: 9px;
-  line-height: 1.2;
+  line-height: 1.4;
   flex-shrink: 0;
 }
 
@@ -1223,6 +1348,25 @@ h3 {
   border-top-color: currentColor;
   animation: qa-spin .7s linear infinite;
   flex-shrink: 0;
+}
+
+/* Utilitário: entrada suave de conteúdo (listas, painéis recém-carregados) */
+.qa-fade-in {
+  animation: qa-fade-in .18s ease-out both;
+}
+
+/* Linha de validação: feedback de hover consistente com as demais listas */
+.validacao-row {
+  transition: border-color .12s ease, background .12s ease, transform .12s ease;
+}
+.validacao-row:hover {
+  border-color: var(--qa-border-strong);
+  transform: translateY(-1px);
+}
+
+/* Troca de aba: o key={activeTab} remonta este wrapper e dispara a animação */
+.qa-tab-body {
+  animation: qa-fade-in .18s ease-out both;
 }
 
 .modal-backdrop {
@@ -2068,8 +2212,7 @@ h3 {
 
   .module-action,
   .actions button,
-  .actions-row button,
-  .commit-toolbar button {
+  .actions-row button {
     width: 100%;
   }
 
@@ -2141,34 +2284,65 @@ h3 {
   gap: var(--qa-space-4);
 }
 
+/* Visão Geral: respiro mais generoso e clima acolhedor */
+.visao-geral .op-card {
+  padding: var(--qa-space-4) var(--qa-space-4);
+  gap: var(--qa-space-3);
+}
+
+/* Suaviza os rótulos em caixa-alta para não cansarem a vista */
+.visao-geral h3 {
+  letter-spacing: 0.04em !important;
+  opacity: 0.92;
+}
+
+/* Cartão de ação recomendada com leve destaque quente, sem agredir */
+.visao-geral .action-callout {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--qa-link) 7%, var(--qa-surface)) 0%,
+    var(--qa-surface) 100%
+  ) !important;
+  border-color: color-mix(in srgb, var(--qa-link) 22%, var(--qa-border));
+}
+
 .dashboard-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--qa-space-2);
 }
 
 .summary-card {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   padding: var(--qa-space-3);
-  border: 1px solid var(--qa-border);
-  border-radius: var(--qa-radius-sm);
-  background: var(--qa-surface);
+  border: 1px solid color-mix(in srgb, var(--qa-border) 60%, transparent);
+  border-radius: var(--qa-radius-md);
+  background: color-mix(in srgb, var(--qa-surface) 88%, var(--qa-bg) 12%);
   min-width: 0;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.summary-card:hover {
+  border-color: color-mix(in srgb, var(--qa-border-strong) 50%, var(--qa-border));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--qa-bg) 60%, transparent);
 }
 
 .summary-card__label {
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--qa-muted);
+  opacity: 0.85;
 }
 
 .summary-card__value {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1.35;
   color: var(--qa-foreground);
 }
 
@@ -2207,7 +2381,7 @@ h3 {
 .telemetry-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .telemetry-row {
@@ -2216,6 +2390,12 @@ h3 {
   justify-content: space-between;
   gap: var(--qa-space-3);
   font-size: 11px;
+  padding: 5px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--qa-border) 35%, transparent);
+}
+
+.telemetry-row:last-child {
+  border-bottom: none;
 }
 
 .action-callout {
@@ -2303,9 +2483,9 @@ h3 {
   display: flex;
   flex-direction: column;
   gap: var(--qa-space-3);
-  border: 1px solid var(--qa-border);
-  border-radius: var(--qa-radius-md);
-  background: var(--qa-surface-subtle);
+  border: 1px solid color-mix(in srgb, var(--qa-border) 60%, transparent);
+  border-radius: var(--qa-radius-lg);
+  background: color-mix(in srgb, var(--qa-surface-subtle) 90%, var(--qa-bg) 10%);
   padding: var(--qa-space-4);
 }
 .op-status-badge {
@@ -2510,5 +2690,167 @@ h3 {
 
   .brand-mini-row .version-small {
     display: none; /* Remove o badge de versão em painéis estreitos */
+  }
+}
+
+/* ==========================================================================
+   Polimento de detalhes — micro-interações e estados ausentes
+   (mesma identidade visual; só acabamento, foco e feedback de interação)
+   ========================================================================== */
+
+/* Logo: transição suave + impede arraste fantasma da imagem */
+.brand-mini-row .mini-logo {
+  user-select: none;
+  -webkit-user-drag: none;
+  transition: opacity 0.15s ease;
+}
+
+/* Hover do navegador de testes (classe antes referenciada sem estilo) */
+.navigator-row-hover {
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+.navigator-row-hover:hover {
+  background: var(--qa-surface-subtle) !important;
+  box-shadow: inset 2px 0 0 var(--qa-link);
+}
+
+/* Filtro de repositório ativo (classe antes referenciada sem estilo) */
+.active-filter {
+  background: var(--qa-info-faint) !important;
+  color: var(--qa-link) !important;
+  font-weight: 600;
+}
+
+/* Lift sutil e premium em cards interativos */
+.resource-card,
+.op-task-summary-row,
+.structure-item {
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+.resource-card:hover {
+  border-color: var(--qa-border-strong);
+}
+.op-task-summary-row:hover,
+.structure-item:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+/* Botões de ação dos cards de recurso reagem ao hover do card inteiro */
+.resource-card:hover .resource-card__action {
+  border-color: var(--qa-border-strong);
+}
+
+/* Acessibilidade: anel de foco consistente via teclado */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--qa-border-strong);
+  outline-offset: 1px;
+  border-radius: var(--qa-radius-sm);
+}
+
+/* Respeita usuários que preferem menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  .resource-card,
+  .op-task-summary-row,
+  .structure-item,
+  .navigator-row-hover,
+  .brand-mini-row .mini-logo {
+    transition: none;
+  }
+  .op-task-summary-row:hover,
+  .structure-item:hover:not(:disabled),
+  .validacao-row:hover,
+  .steps-indicator .step-item.active .step-badge {
+    transform: none;
+  }
+  .steps-indicator .step-badge,
+  .steps-divider {
+    transition: none;
+  }
+  .qa-fade-in,
+  .qa-tab-body {
+    animation: none;
+  }
+  .inline-spinner {
+    animation-duration: 1.5s; /* mantém o feedback de carregamento, porém suave */
+  }
+}
+
+/* ==========================================================================
+   Responsividade — painel estreito (sidebar docada do VS Code, ~260px)
+   Tudo colapsa para coluna única e as barras de ação quebram em linha.
+   ========================================================================== */
+@media (max-width: 380px) {
+  /* Grades em coluna única */
+  .dashboard-summary-grid,
+  .telemetry-grid,
+  .resource-card-grid,
+  .structure-grid,
+  .preview-grid-summary,
+  .setup-hero-grid,
+  .setup-summary-grid,
+  .setup-callout-grid,
+  .setup-checklist-grid,
+  .form-grid,
+  .validacao-detalhe-grid,
+  .sucesso-ia-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Barras de ação e toolbars quebram em vez de transbordar */
+  .actions-row,
+  .actions-row.split,
+  .commit-toolbar {
+    flex-wrap: wrap;
+  }
+  .actions-row.split > * {
+    flex: 1 1 auto;
+  }
+
+  /* Botões em barras de ação ocupam a largura toda quando empilhados */
+  .actions-row > button {
+    flex: 1 1 100%;
+  }
+
+  /* Abas de etapa do onboarding em grade 2x2 para não cortar */
+  .setup-wizard-steps {
+    flex-wrap: wrap;
+  }
+  .setup-wizard-steps .setup-step-pill {
+    flex: 1 1 45%;
+  }
+
+  /* Indicador de passos do wizard empilha verticalmente */
+  .steps-indicator {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .steps-indicator .steps-divider {
+    display: none;
+  }
+
+  /* Reduz padding dos painéis para ganhar largura útil */
+  .panel,
+  .op-card {
+    padding: var(--qa-space-3);
+  }
+}
+
+/* Largura mínima real (sidebar bem estreita) — aperta ainda mais */
+@media (max-width: 260px) {
+  .scrollable-body {
+    padding: var(--qa-space-1);
+  }
+  .panel,
+  .op-card {
+    padding: var(--qa-space-2);
+  }
+  /* Atalhos e filtros: cada item em linha cheia para toque/clique confortável */
+  .commit-toolbar > button {
+    flex: 1 1 100%;
   }
 }

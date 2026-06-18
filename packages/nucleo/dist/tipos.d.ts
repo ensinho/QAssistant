@@ -12,6 +12,12 @@ export interface CaminhosProjeto {
     backend?: string;
     raizTestes: string;
     raizContexto: string;
+    /**
+     * Lista opcional de repositórios Git a escanear, relativos à raiz do workspace.
+     * Quando vazia/ausente, o QAssistant descobre repositórios automaticamente
+     * (raiz do workspace + subpastas imediatas que contenham `.git`).
+     */
+    repositorios?: string[];
 }
 export interface ConfiguracaoQAssistant {
     versao: 1;

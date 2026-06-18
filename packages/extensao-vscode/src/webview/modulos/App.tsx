@@ -1,5 +1,5 @@
 import type { FC, ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CampoDiretorioSetup,
   CommitGitQAssistant,
@@ -22,7 +22,7 @@ const OPENPROJECT_URL_PADRAO = 'http://openproject.ormel.com.br/';
 
 const estadoInicial: EstadoPainel = {
   produto: 'QAssistant',
-  versaoExtensao: '0.1.0',
+  versaoExtensao: '2.0.0',
   assets: { logoUri: '' },
   workspaceAberto: false,
   workspaceInicializado: false,
@@ -312,6 +312,14 @@ const IconClipboardCheck: FC<{ style?: object }> = ({ style }) => (
   </svg>
 );
 
+// Ícone: Relógio / Duração
+const IconClock: FC<{ style?: object }> = ({ style }) => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
+    <circle cx="12" cy="12" r="9" />
+    <polyline points="12 7 12 12 16 14" />
+  </svg>
+);
+
 // Ícone: Microscópio / Analisar (lente + barra)
 const IconAnalyze: FC<{ style?: object }> = ({ style }) => (
   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', ...style }}>
@@ -320,6 +328,20 @@ const IconAnalyze: FC<{ style?: object }> = ({ style }) => (
     <line x1="11" y1="8" x2="11" y2="14" stroke="currentColor" />
     <line x1="8" y1="11" x2="14" y2="11" stroke="currentColor" />
   </svg>
+);
+
+// Spinner reutilizável (usa a animação .inline-spinner do design system)
+const Spinner: FC<{ size?: number; style?: object }> = ({ size = 10, style }) => (
+  <span className="inline-spinner" style={{ width: `${size}px`, height: `${size}px`, ...style }} />
+);
+
+// Linhas de esqueleto para listas carregando (pulso via .skeleton-line)
+const SkeletonLista: FC<{ linhas?: number }> = ({ linhas = 3 }) => (
+  <div className="qa-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }} aria-hidden="true">
+    {Array.from({ length: linhas }).map((_, i) => (
+      <div key={i} className="skeleton-line" style={{ height: '34px', borderRadius: 'var(--qa-radius-sm)' }} />
+    ))}
+  </div>
 );
 
 export function App(): ReactElement {
@@ -352,6 +374,15 @@ export function App(): ReactElement {
   const [seletorPromptAssistido, setSeletorPromptAssistido] = useState<SeletorPromptAssistidoState | null>(null);
   const [resultadoPromptAssistido, setResultadoPromptAssistido] = useState<ResultadoPromptAssistido | null>(null);
   const [busyCriadorPrompt, setBusyCriadorPrompt] = useState({ contexto: false, artefato: false });
+  const [logoQuebrado, setLogoQuebrado] = useState(false);
+  const [repoFiltro, setRepoFiltro] = useState<string>('todos');
+  const [taskIdWizard, setTaskIdWizard] = useState('');
+  // Mapa genérico de ações assíncronas em curso (chave -> em andamento).
+  // O host não confirma cada ação individualmente, então limpamos tudo no
+  // próximo estado.atualizado ou notificacao.* (ver listener de mensagens).
+  const [acoesEmCurso, setAcoesEmCurso] = useState<Record<string, boolean>>({});
+  const acaoAtiva = (chave: string): boolean => Boolean(acoesEmCurso[chave]);
+  const iniciarAcao = (chave: string): void => setAcoesEmCurso((atual) => ({ ...atual, [chave]: true }));
 
   const taskAtiva = useMemo(() => {
     if (!selectedTask) return null;
@@ -382,6 +413,11 @@ export function App(): ReactElement {
     () => formCriadorPrompt.objetivo.trim().length >= 8 && (!metaTipoPromptAssistido.exigeStack || Boolean(formCriadorPrompt.stack)),
     [formCriadorPrompt.objetivo, formCriadorPrompt.stack, metaTipoPromptAssistido.exigeStack],
   );
+
+  // Reabilita o logo se a URI do asset mudar (ex.: recarga do webview)
+  useEffect(() => {
+    setLogoQuebrado(false);
+  }, [estado.assets.logoUri]);
 
   // Limpar formulário de comentário ao trocar/fechar tarefa
   useEffect(() => {
@@ -421,6 +457,8 @@ export function App(): ReactElement {
       if (mensagemRecebida.tipo === 'estado.atualizado') {
         setEstado(mensagemRecebida.estado);
         setSetup((atual) => preencherSetupComEstado(atual, mensagemRecebida.estado));
+        // Estado fresco do host = ações assíncronas concluídas.
+        setAcoesEmCurso({});
         return;
       }
       if (mensagemRecebida.tipo === 'workspace.diretorioSelecionado') {
@@ -471,6 +509,7 @@ export function App(): ReactElement {
         setProcessandoIA(null);
         setEnviandoComentario(false);
         setBusyCriadorPrompt({ contexto: false, artefato: false });
+        setAcoesEmCurso({});
         setMensagem(mensagemRecebida.mensagem);
         return;
       }
@@ -485,6 +524,31 @@ export function App(): ReactElement {
     if (!estado.workspaceInicializado || estado.git.carregando || estado.git.carregadoEm || estado.git.erro) return;
     enviar({ tipo: 'git.carregarCommits', limite: setup.commitsPadrao });
   }, [estado.git.carregando, estado.git.carregadoEm, estado.git.erro, estado.workspaceInicializado, setup.commitsPadrao]);
+
+  // Carrega as Atividades do OpenProject automaticamente uma vez, após o
+  // workspace e o git estarem prontos (o "ambiente" totalmente carregado).
+  // Assim o usuário já vê suas tarefas sem precisar clicar em "Sincronizar".
+  const tasksAutoCarregadas = useRef(false);
+  useEffect(() => {
+    if (tasksAutoCarregadas.current) return;
+    const opAtivo = estado.configuracao?.openProject.habilitado && estado.openProjectKeyPresente;
+    const ambientePronto = estado.workspaceInicializado && (estado.git.carregadoEm || estado.git.erro);
+    if (!opAtivo || !ambientePronto) return;
+    if (estado.openprojectTasks.length > 0) {
+      tasksAutoCarregadas.current = true;
+      return;
+    }
+    tasksAutoCarregadas.current = true;
+    iniciarAcao('op:listar');
+    enviar({ tipo: 'openproject.listarTasks' });
+  }, [
+    estado.workspaceInicializado,
+    estado.configuracao?.openProject.habilitado,
+    estado.openProjectKeyPresente,
+    estado.git.carregadoEm,
+    estado.git.erro,
+    estado.openprojectTasks.length,
+  ]);
 
   useEffect(() => {
     if (estado.git.recentes.length === 0) {
@@ -622,9 +686,14 @@ export function App(): ReactElement {
             value={setup[campo] || ''}
             onChange={(evento) => atualizarSetup(campo, evento.target.value)}
           />
-          <button type="button" className="secondary setup-picker-button" onClick={() => selecionarDiretorioSetup(campo)}>
+          <button
+            type="button"
+            className="secondary setup-picker-button"
+            onClick={() => selecionarDiretorioSetup(campo)}
+            title="Selecionar pasta"
+            aria-label="Selecionar pasta"
+          >
             <IconFolder />
-            <span>Selecionar pasta</span>
           </button>
         </div>
       </label>
@@ -757,10 +826,19 @@ export function App(): ReactElement {
       {/* Header fixa, visual polido, logo png oficial à esquerda do título */}
       <header className="sticky-header">
         <div className="brand-mini-row">
-          {estado.assets.logoUri ? (
-            <img className="mini-logo" src={estado.assets.logoUri} alt="QAssistant" />
+          {estado.assets.logoUri && !logoQuebrado ? (
+            <img
+              className="mini-logo"
+              src={estado.assets.logoUri}
+              alt="QAssistant"
+              width={20}
+              height={20}
+              decoding="async"
+              draggable={false}
+              onError={() => setLogoQuebrado(true)}
+            />
           ) : (
-            <div className="brand-mark" style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--qa-brand)', color: '#fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}>Q</div>
+            <div className="brand-mark" aria-label="QAssistant" style={{ width: '20px', height: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--qa-brand)', color: 'var(--qa-brand-foreground)', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold', flexShrink: 0 }}>Q</div>
           )}
           <h1>{estado.produto}</h1>
           <span className="version-small">v{estado.versaoExtensao}</span>
@@ -1144,8 +1222,9 @@ export function App(): ReactElement {
                 <span>Configuração</span>
               </button>
             </div>
+            <div key={activeTab} className="qa-tab-body">
             {activeTab === 'resumos' && !criandoNovoPacote && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div className="visao-geral" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {/* 1. KPI Cards Row (Grid) */}
                 <div className="dashboard-summary-grid">
                   <div className="summary-card">
@@ -1160,12 +1239,12 @@ export function App(): ReactElement {
                   </div>
 
                   <div className="summary-card">
-                    <span className="summary-card__label">Ativo / Focado</span>
+                    <span className="summary-card__label">Última validação</span>
                     <strong className="summary-card__value link text-truncate" title={estado.ultimoPacoteValidacao?.id}>
-                      {estado.ultimoPacoteValidacao ? formatarNomePacote(estado.ultimoPacoteValidacao.id) : 'Nenhum'}
+                      {estado.ultimoPacoteValidacao ? formatarNomePacote(estado.ultimoPacoteValidacao.id) : 'Nenhuma ainda'}
                     </strong>
                     <span className="summary-card__meta text-truncate">
-                      {estado.ultimoPacoteValidacao ? 'Pronto para IA' : 'Nenhuma validação focada'}
+                      {estado.ultimoPacoteValidacao ? 'Pronta para IA e publicação' : 'Crie sua primeira validação'}
                     </span>
                   </div>
 
@@ -1271,21 +1350,25 @@ export function App(): ReactElement {
                       <button
                         type="button"
                         className="secondary"
-                        style={{ fontSize: '9px', minHeight: '18px', padding: '1px 6px' }}
-                        onClick={() => enviar({ tipo: 'openproject.listarTasks' })}
+                        style={{ fontSize: '9px', minHeight: '18px', padding: '1px 6px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        disabled={acaoAtiva('op:listar')}
+                        onClick={() => { iniciarAcao('op:listar'); enviar({ tipo: 'openproject.listarTasks' }); }}
                       >
-                        Sincronizar
+                        {acaoAtiva('op:listar') && <Spinner size={8} />}
+                        <span>{acaoAtiva('op:listar') ? 'Sincronizando...' : 'Sincronizar'}</span>
                       </button>
                     )}
                   </div>
-                  {estado.openprojectTasks.length === 0 ? (
+                  {acaoAtiva('op:listar') && estado.openprojectTasks.length === 0 ? (
+                    <SkeletonLista linhas={3} />
+                  ) : estado.openprojectTasks.length === 0 ? (
                     <div className="empty-dashed-panel">
                       <p style={{ fontSize: '11px', color: 'var(--qa-muted)', margin: 0 }}>
                         Nenhuma tarefa pendente ou conexão as síncronas com OpenProject estão desativadas.
                       </p>
                     </div>
                   ) : (
-                    <div className="scroll-region compact" style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px' }}>
+                    <div className="scroll-region compact qa-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '180px' }}>
                       {estado.openprojectTasks.slice(0, 3).map((task) => (
                         <div
                           key={task.id}
@@ -1323,52 +1406,54 @@ export function App(): ReactElement {
                   </button>
                 </div>
 
-                {/* Indicador de Passos do Wizard Pipelinado (Sem Emojis, Clean) */}
-                <div className="steps-indicator">
-                  <span className={`step-item ${wizardStep === 'selecionar' ? 'active' : ''} ${wizardStep === 'revisar' || wizardStep === 'sucesso' ? 'completed' : ''}`}>
-                    1. Selecionar Commits {hashesSelecionados.length > 0 ? `(${hashesSelecionados.length})` : ''}
-                  </span>
-                  <div className="steps-divider" />
-                  <span className={`step-item ${wizardStep === 'revisar' ? 'active' : ''} ${wizardStep === 'sucesso' ? 'completed' : ''}`}>
-                    2. Revisar Pacote
-                  </span>
-                  <div className="steps-divider" />
-                  <span className={`step-item ${wizardStep === 'sucesso' ? 'active' : ''}`}>
-                    3. Sugestões de IA & Conclusão
-                  </span>
-                </div>
+                {/* Indicador de Passos do Wizard — stepper premium com badges numeradas */}
+                {(() => {
+                  const ordem = ['selecionar', 'revisar', 'sucesso'] as const;
+                  const atualIdx = ordem.indexOf(wizardStep);
+                  const passos = [
+                    { rotulo: 'Commits', extra: hashesSelecionados.length > 0 ? `(${hashesSelecionados.length})` : '' },
+                    { rotulo: 'Revisar', extra: '' },
+                    { rotulo: 'Concluir', extra: '' },
+                  ];
+                  return (
+                    <div className="steps-indicator" role="list" aria-label="Etapas">
+                      {passos.map((passo, i) => {
+                        const estadoPasso = i < atualIdx ? 'completed' : i === atualIdx ? 'active' : 'pending';
+                        return (
+                          <Fragment key={passo.rotulo}>
+                            {i > 0 && <div className={`steps-divider ${i <= atualIdx ? 'filled' : ''}`} />}
+                            <span className={`step-item ${estadoPasso}`} role="listitem" aria-current={estadoPasso === 'active' ? 'step' : undefined}>
+                              <span className="step-badge">{estadoPasso === 'completed' ? <IconCheck /> : i + 1}</span>
+                              <span className="step-label">{passo.rotulo}{passo.extra ? ` ${passo.extra}` : ''}</span>
+                            </span>
+                          </Fragment>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
 
                 {/* PASSO 1: SELECIONAR COMMITS */}
                 {wizardStep === 'selecionar' && (
                   <section className="panel commits-panel" aria-labelledby="commits-title">
                     <div className="section-heading">
-                      <div>
-                        <p className="eyebrow" style={{ color: 'var(--qa-success)' }}>Workspace: {setup.nomeProjeto}</p>
-                        <h2 id="commits-title" style={{ fontSize: '13px' }}>Lista de commits recentes</h2>
-                      </div>
-                      <span className="badge">{estado.git.carregando ? 'Buscando logs...' : `${estado.git.recentes.length} commits`}</span>
+                      <h2 id="commits-title" style={{ fontSize: '13px', margin: 0 }}>Selecione os commits</h2>
+                      <span className="badge">{estado.git.carregando ? 'Carregando...' : `${estado.git.recentes.length} commits`}</span>
                     </div>
 
                     {estado.git.erro ? <div className="inline-alert danger" style={{ fontSize: '11px' }}>{estado.git.erro}</div> : null}
 
                     {!estado.git.erro && (
                       <>
-                        <p className="hero-text" style={{ fontSize: '11px', margin: '0' }}>
-                          Escolha as modificações que deseja enviar para análise inteligente e geração de relatórios estruturados.
-                        </p>
-
                         {/* Filtro compacto por Repositorios */}
                         {estado.git.repositorios && estado.git.repositorios.length > 0 && (
-                          <div style={{ margin: 'var(--qa-space-2) 0', display: 'flex', gap: 'var(--qa-space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <div style={{ margin: 'var(--qa-space-1) 0', display: 'flex', gap: 'var(--qa-space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
                             <span style={{ fontSize: '10px', color: 'var(--qa-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Repositório:</span>
                             <button
                               type="button"
-                              className={`secondary ${!(window as any)._repoFiltro || (window as any)._repoFiltro === 'todos' ? 'active-filter' : ''}`}
-                              style={{ minHeight: '20px', padding: '2px 8px', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px', border: !(window as any)._repoFiltro || (window as any)._repoFiltro === 'todos' ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)' }}
-                              onClick={() => {
-                                (window as any)._repoFiltro = 'todos';
-                                setSetup((s) => ({ ...s }));
-                              }}
+                              className={`secondary ${repoFiltro === 'todos' ? 'active-filter' : ''}`}
+                              style={{ minHeight: '20px', padding: '2px 8px', fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px', border: repoFiltro === 'todos' ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)' }}
+                              onClick={() => setRepoFiltro('todos')}
                             >
                               Todos <span className="badge-small">{estado.git.recentes.length}</span>
                             </button>
@@ -1378,7 +1463,7 @@ export function App(): ReactElement {
                                 <button
                                   key={repo.id}
                                   type="button"
-                                  className="secondary"
+                                  className={`secondary ${repoFiltro === repo.id ? 'active-filter' : ''}`}
                                   style={{
                                     minHeight: '20px',
                                     padding: '2px 8px',
@@ -1386,12 +1471,9 @@ export function App(): ReactElement {
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '4px',
-                                    border: (window as any)._repoFiltro === repo.id ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)'
+                                    border: repoFiltro === repo.id ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)'
                                   }}
-                                  onClick={() => {
-                                    (window as any)._repoFiltro = repo.id;
-                                    setSetup((s) => ({ ...s }));
-                                  }}
+                                  onClick={() => setRepoFiltro(repo.id)}
                                 >
                                   {repo.nome} <span className="badge-small">{count}</span>
                                 </button>
@@ -1400,67 +1482,65 @@ export function App(): ReactElement {
                           </div>
                         )}
 
-                        <div className="commit-toolbar" style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
-                          <button
-                            type="button"
-                            className="secondary"
-                            style={{ fontSize: '11px', minHeight: '22px' }}
-                            onClick={() => setCriandoNovoPacote(false)}
-                          >
-                            ← Voltar
-                          </button>
+                        <div className="commit-toolbar" style={{ display: 'flex', gap: '6px', margin: '6px 0', flexWrap: 'wrap' }}>
                           <button
                             type="button"
                             className="secondary"
                             style={{ fontSize: '11px', minHeight: '22px' }}
                             onClick={() => {
-                              const filtro = (window as any)._repoFiltro || 'todos';
-                              const filtrados = estado.git.recentes.filter(c => filtro === 'todos' || c.repositorioId === filtro);
+                              const filtrados = estado.git.recentes.filter(c => repoFiltro === 'todos' || c.repositorioId === repoFiltro);
                               setHashesSelecionados(filtrados.map((commit) => commit.hash));
                             }}
-                            disabled={estado.git.recentes.length === 0}
+                            disabled={estado.git.recentes.length === 0 || estado.git.carregando}
                           >
-                            Todos os filtrados
+                            Selecionar todos
                           </button>
                           <button type="button" className="secondary" style={{ fontSize: '11px', minHeight: '22px' }} onClick={() => setHashesSelecionados([])} disabled={hashesSelecionados.length === 0}>
-                            Limpar seleção
+                            Limpar
                           </button>
-                          <button type="button" className="secondary" style={{ fontSize: '11px', minHeight: '22px' }} onClick={recarregarCommits} disabled={estado.git.carregando}>
-                            Recarregar log
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ fontSize: '11px', minHeight: '22px', display: 'flex', alignItems: 'center', gap: '4px', marginLeft: 'auto' }}
+                            onClick={recarregarCommits}
+                            disabled={estado.git.carregando}
+                          >
+                            {estado.git.carregando ? <Spinner size={9} /> : <IconRefresh />}
+                            <span>{estado.git.carregando ? 'Recarregando...' : 'Recarregar'}</span>
                           </button>
                         </div>
 
-                        {estado.git.recentes.length === 0 && !estado.git.carregando ? (
+                        {estado.git.carregando && estado.git.recentes.length === 0 ? (
+                          <SkeletonLista linhas={4} />
+                        ) : estado.git.recentes.length === 0 ? (
                           <EmptyState texto="Nenhum commit recente encontrado nos subdiretórios monitorados." />
-                        ) : null}
-
-                        <div className="commit-list commit-list-shell scroll-region" style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '320px' }}>
-                          {estado.git.recentes
-                            .filter((commit) => {
-                              const filtro = (window as any)._repoFiltro || 'todos';
-                              return filtro === 'todos' || commit.repositorioId === filtro;
-                            })
-                            .map((commit) => (
-                              <CommitItem
-                                commit={commit}
-                                key={commit.hash}
-                                selecionado={hashesSelecionados.includes(commit.hash)}
-                                onToggle={() => alternarCommit(commit.hash)}
-                              />
-                            ))}
-                        </div>
+                        ) : (
+                          <div
+                            className="commit-list commit-list-shell scroll-region qa-fade-in"
+                            style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '340px', opacity: estado.git.carregando ? 0.55 : 1, transition: 'opacity 0.15s ease', pointerEvents: estado.git.carregando ? 'none' : 'auto' }}
+                          >
+                            {estado.git.recentes
+                              .filter((commit) => repoFiltro === 'todos' || commit.repositorioId === repoFiltro)
+                              .map((commit) => (
+                                <CommitItem
+                                  commit={commit}
+                                  key={commit.hash}
+                                  selecionado={hashesSelecionados.includes(commit.hash)}
+                                  onToggle={() => alternarCommit(commit.hash)}
+                                />
+                              ))}
+                          </div>
+                        )}
 
                         {hashesSelecionados.length > 0 && (
                           <div className="actions-row" style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                             <button
                               type="button"
-                              className="secondary"
-                              style={{ fontSize: '11px', minHeight: '24px' }}
-                              onClick={() => {
-                                setWizardStep('revisar');
-                              }}
+                              style={{ fontSize: '11px', minHeight: '26px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
+                              onClick={() => setWizardStep('revisar')}
                             >
-                              Avançar para Revisão
+                              <span>Avançar para Revisão</span>
+                              <IconChevronRight />
                             </button>
                           </div>
                         )}
@@ -1496,45 +1576,46 @@ export function App(): ReactElement {
 
                     <div style={{ marginTop: '8px' }}>
                       <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--qa-muted)', display: 'block', marginBottom: '4px' }}>Assunto dos Commits:</span>
-                      <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '100px', overflowY: 'auto' }}>
+                      <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '100px', overflowY: 'auto', overflowWrap: 'anywhere' }}>
                         {commitsSelecionados.map(c => (
-                          <li key={c.hash}>
+                          <li key={c.hash} style={{ lineHeight: 1.4 }}>
                             <code>{c.hashCurto}</code> - {c.assunto} <span style={{ fontSize: '9px', color: 'var(--qa-muted)' }}>({c.repositorioNome})</span>
                           </li>
                         ))}
                       </ul>
                     </div>
 
-                    <div className="actions-row" style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between' }}>
+                    <div className="revisar-footer">
                       <button
                         type="button"
-                        className="secondary"
-                        style={{ fontSize: '11px', minHeight: '24px' }}
-                        onClick={() => {
-                          setHashesSelecionados([]);
-                          setCriandoNovoPacote(false);
-                        }}
+                        className="secondary revisar-footer__back"
+                        title="Voltar para a seleção de commits"
+                        onClick={() => setWizardStep('selecionar')}
                       >
-                        Cancelar
+                        <IconArrowLeft />
+                        <span>Voltar</span>
                       </button>
-                      <div style={{ display: 'flex', gap: '8px' }}>
+
+                      <div className="revisar-footer__primary">
                         <button
                           type="button"
                           className="secondary"
-                          style={{ fontSize: '11px', minHeight: '24px' }}
+                          title="Criar um pacote vazio, sem vincular commits (você adiciona depois)"
                           onClick={criarPacoteRascunho}
                         >
-                          Rascunho sem commits
+                          Criar rascunho
                         </button>
                         <button
                           type="button"
-                          style={{ fontSize: '11px', minHeight: '24px' }}
+                          title="Gera o pacote com os commits selecionados e abre as ações de IA"
+                          style={{ fontWeight: 600 }}
                           onClick={() => {
                             criarPacoteComCommits();
                             setWizardStep('sucesso');
                           }}
                         >
-                          Gerar Pacote de Validação
+                          <IconCheck />
+                          <span>Gerar pacote ({hashesSelecionados.length})</span>
                         </button>
                       </div>
                     </div>
@@ -1556,7 +1637,7 @@ export function App(): ReactElement {
                       Seu pacote de validação e o arquivo <code>resumo-qa.md</code> foram gerados! Escolha uma das ações de inteligência e automação abaixo para expandir e documentar o impacto das suas alterações.
                     </p>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    <div className="sucesso-ia-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                       <div style={{ border: '1px solid var(--qa-border)', padding: '8px', borderRadius: '4px', background: 'var(--qa-surface)' }}>
                         <h4 style={{ margin: '0 0 4px', fontSize: '11px', fontWeight: 600 }}>Resumo de Impacto IA</h4>
                         <p style={{ fontSize: '10px', color: 'var(--qa-muted)', margin: '0 0 6px', lineHeight: '1.3' }}>
@@ -1602,8 +1683,9 @@ export function App(): ReactElement {
                       </p>
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                         <input
-                          id="op-wizard-task-id"
                           placeholder="Task ID (vazio se criar nova)"
+                          value={taskIdWizard}
+                          onChange={(evento) => setTaskIdWizard(evento.target.value)}
                           style={{ fontSize: '10px', height: '22px', flex: 1, padding: '2px 6px', borderRadius: '3px', border: '1px solid var(--qa-border)' }}
                         />
                         <button
@@ -1611,8 +1693,7 @@ export function App(): ReactElement {
                           disabled={processandoIA !== null}
                           style={{ minHeight: '22px', fontSize: '10px', padding: '2px 8px' }}
                           onClick={() => {
-                            const input = document.getElementById('op-wizard-task-id') as HTMLInputElement;
-                            const idVal = input?.value?.trim() || '';
+                            const idVal = taskIdWizard.trim();
                             setProcessandoIA('openproject');
                             enviar({
                               tipo: 'openproject.publicarTask',
@@ -1721,9 +1802,10 @@ export function App(): ReactElement {
                           type="button"
                           className="secondary"
                           style={{ fontSize: '10px', minHeight: '18px', padding: '1px 6px', display: 'flex', alignItems: 'center', gap: '3px' }}
-                          onClick={() => enviar({ tipo: 'openproject.listarTasks' })}
+                          disabled={acaoAtiva('op:listar')}
+                          onClick={() => { iniciarAcao('op:listar'); enviar({ tipo: 'openproject.listarTasks' }); }}
                         >
-                          <IconSearch />
+                          {acaoAtiva('op:listar') ? <Spinner size={8} /> : <IconSearch />}
                           <span>Testar</span>
                         </button>
                       </div>
@@ -1740,14 +1822,17 @@ export function App(): ReactElement {
                           type="button"
                           className="secondary"
                           style={{ fontSize: '10px', minHeight: '20px', padding: '2px 8px', display: 'flex', alignItems: 'center', gap: '3px' }}
-                          onClick={() => enviar({ tipo: 'openproject.listarTasks' })}
+                          disabled={acaoAtiva('op:listar')}
+                          onClick={() => { iniciarAcao('op:listar'); enviar({ tipo: 'openproject.listarTasks' }); }}
                         >
-                          <IconSearch />
-                          <span>Atualizar Lista</span>
+                          {acaoAtiva('op:listar') ? <Spinner size={8} /> : <IconSearch />}
+                          <span>{acaoAtiva('op:listar') ? 'Atualizando...' : 'Atualizar'}</span>
                         </button>
                       </div>
 
-                      {estado.openprojectTasks.length === 0 ? (
+                      {acaoAtiva('op:listar') && estado.openprojectTasks.length === 0 ? (
+                        <SkeletonLista linhas={4} />
+                      ) : estado.openprojectTasks.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: '24px 0', border: '1px dashed var(--qa-border)', borderRadius: '6px' }}>
                           <p style={{ fontSize: '11px', color: 'var(--qa-muted)', margin: '0 0 10px' }}>
                             Nenhuma tarefa carregada na lista local.
@@ -1755,14 +1840,15 @@ export function App(): ReactElement {
                           <button
                             type="button"
                             style={{ fontSize: '11px', minHeight: '24px', margin: '0 auto', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                            onClick={() => enviar({ tipo: 'openproject.listarTasks' })}
+                            disabled={acaoAtiva('op:listar')}
+                            onClick={() => { iniciarAcao('op:listar'); enviar({ tipo: 'openproject.listarTasks' }); }}
                           >
-                            <IconSearch />
-                            <span>Sincronizar Tarefas</span>
+                            {acaoAtiva('op:listar') ? <Spinner size={10} /> : <IconSearch />}
+                            <span>{acaoAtiva('op:listar') ? 'Sincronizando...' : 'Sincronizar Tarefas'}</span>
                           </button>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '550px', overflowY: 'auto', paddingRight: '4px' }}>
+                        <div className="qa-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '550px', overflowY: 'auto', paddingRight: '4px' }}>
                           {estado.openprojectTasks.map((task) => (
                             <TaskItem
                               key={task.id}
@@ -1781,57 +1867,34 @@ export function App(): ReactElement {
                       )}
                     </div>
 
-                    {/* Form de publicação / vínculo avulso */}
-                    <div className="op-card" style={{ borderStyle: 'dashed' }}>
-                      <h3 style={{ margin: '0 0 var(--qa-space-1)', fontSize: '11px' }}>Vincular Pacote Ativo</h3>
-                      <p className="hero-text" style={{ fontSize: '11px', margin: '0 0 var(--qa-space-2)', color: 'var(--qa-muted)' }}>
-                        Selecione um pacote recente e envie seu relatório <code>resumo-qa.md</code> para a tarefa abaixo.
+                    {/* Atalho para publicar: leva o usuário ao fluxo de criação → publicação */}
+                    <div className="op-card" style={{ borderStyle: 'dashed', display: 'flex', flexDirection: 'column', gap: 'var(--qa-space-2)' }}>
+                      <h3 style={{ margin: 0, fontSize: '11px' }}>Publicar uma validação</h3>
+                      <p className="hero-text" style={{ fontSize: '11px', margin: 0, color: 'var(--qa-muted)' }}>
+                        A publicação no OpenProject acontece a partir de uma validação. Abra uma validação existente ou crie uma nova para enviar o relatório <code>resumo-qa.md</code>.
                       </p>
-                      <div className="form-grid" style={{ marginBottom: 'var(--qa-space-2)' }}>
-                        <label style={{ fontSize: '11px' }}>
-                          ID do Work Package (#)
-                          <input
-                            id="op-task-id-input"
-                            placeholder="Ex: 27152 (vazio para criar nova)"
-                            defaultValue=""
-                          />
-                        </label>
-                      </div>
-                      <div className="actions-row" style={{ display: 'flex', gap: '8px' }}>
+                      <div className="actions-row" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button
                           type="button"
-                          style={{ fontSize: '11px', minHeight: '22px' }}
+                          style={{ fontSize: '11px', minHeight: '24px', display: 'flex', alignItems: 'center', gap: '4px' }}
                           onClick={() => {
-                            const input = document.getElementById('op-task-id-input') as HTMLInputElement;
-                            const id = input?.value?.trim() || '';
-                            if (!estado.ultimoPacoteValidacao) {
-                              setMensagem('Crie um pacote de validação na aba "Resumos" primeiro.');
-                              return;
-                            }
-                            enviar({
-                              tipo: 'openproject.publicarTask',
-                              rascunhoCaminho: estado.ultimoPacoteValidacao.caminhoRelativo,
-                              taskId: id || undefined
-                            });
+                            setHashesSelecionados([]);
+                            setCriandoNovoPacote(true);
+                            setWizardStep('selecionar');
+                            setActiveTab('resumos');
                           }}
                         >
-                          Publicar no OpenProject
+                          <IconPlus />
+                          <span>Criar validação</span>
                         </button>
                         <button
                           type="button"
                           className="secondary"
-                          style={{ fontSize: '11px', minHeight: '22px' }}
-                          onClick={() => {
-                            const input = document.getElementById('op-task-id-input') as HTMLInputElement;
-                            const id = input?.value?.trim() || '';
-                            if (!id) {
-                              setMensagem('Informe o ID do Work Package para testar obter o status.');
-                              return;
-                            }
-                            enviar({ tipo: 'openproject.obterStatus', taskId: id });
-                          }}
+                          style={{ fontSize: '11px', minHeight: '24px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                          onClick={() => { setAbaValidacoesFoco('lista'); setActiveTab('validacoes'); }}
                         >
-                          Verificar Status
+                          <IconSearch />
+                          <span>Ver validações</span>
                         </button>
                       </div>
                     </div>
@@ -1841,15 +1904,15 @@ export function App(): ReactElement {
               </section>
             )}
 
-            {/* ABA: TESTES & ARTEFATOS (SEM COMPONENTES ADICIONAIS, SÓ RETIRADA DE EMOJIS E DESIGN HIGHLIGHTS) */}
+            {/* ABA: TESTES & ARTEFATOS */}
             {activeTab === 'testes' && (
               <>
-                {/* CONTROLE & ESPECIFICAÇÕE DE TESTE */}
+                {/* CONTROLE & ESPECIFICAÇÕES DE TESTE */}
                 <section className="panel" style={{ border: '1px solid var(--qa-border)', borderRadius: '4px', padding: '12px', marginBottom: '12px' }}>
                   <div className="section-heading" style={{ padding: 0, marginBottom: '8px' }}>
                     <div>
-                      <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600 }}>Especificações & Controle de Testes</h3>
-                      <p style={{ margin: '2px 0 0', fontSize: '10.5px', color: 'var(--qa-muted)' }}>Definições executáveis, matrizes de automação e regras do orquestrador local.</p>
+                      <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600 }}>Preparar testes</h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '10.5px', color: 'var(--qa-muted)' }}>Arquivos-guia do projeto e o criador de prompts de teste com IA.</p>
                     </div>
                   </div>
 
@@ -1858,10 +1921,10 @@ export function App(): ReactElement {
                     <div className="op-card resource-card">
                       <div className="resource-card__header">
                         <IconSparkles />
-                        <strong>Criador guiado</strong>
+                        <strong>Criar prompt de teste</strong>
                       </div>
                       <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
-                        Monte um prompt parametrizado com contexto, arquivos, pastas e observações para usar direto no agente.
+                        Monta, com a IA, um prompt pronto (arquivos, contexto e observações) para gerar testes no seu agente.
                       </p>
                       <button
                         type="button"
@@ -1881,7 +1944,7 @@ export function App(): ReactElement {
                         <strong>Mapa de Testes</strong>
                       </div>
                       <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
-                        Mapa de cenários e caminhos em Qassistant-testes.
+                        Lista os cenários e fluxos que o projeto cobre (arquivo do workspace).
                       </p>
                       <button
                         type="button"
@@ -1900,7 +1963,7 @@ export function App(): ReactElement {
                         <strong>Diretrizes de QA</strong>
                       </div>
                       <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
-                        Guia e regras ativas de enquadramento (pt-BR).
+                        Como escrever e padronizar os testes deste projeto.
                       </p>
                       <button
                         type="button"
@@ -1916,10 +1979,10 @@ export function App(): ReactElement {
                     <div className="op-card resource-card">
                       <div className="resource-card__header">
                         <IconSearch />
-                        <strong>Pasta de Logs</strong>
+                        <strong>Relatórios & evidências</strong>
                       </div>
                       <p className="hero-text" style={{ fontSize: '10px', margin: 0, color: 'var(--qa-muted)' }}>
-                        Relatórios estruturados e evidências das runs.
+                        Resultados, logs e evidências gerados a cada execução.
                       </p>
                       <button
                         type="button"
@@ -1938,8 +2001,8 @@ export function App(): ReactElement {
                 <section className="panel qa-inline-runner" style={{ border: '1px solid var(--qa-border)', borderRadius: '4px', padding: '12px', marginBottom: '12px' }}>
                   <div className="section-heading" style={{ padding: 0, marginBottom: '8px' }}>
                     <div style={{ flex: 1 }}>
-                      <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600 }}>Executador de Testes (QA Runner)</h3>
-                      <p style={{ margin: '2px 0 0', fontSize: '10.5px', color: 'var(--qa-muted)' }}>Execute testes automatizados locais diretamente pela extensão, acompanhando logs e resultados em Qassistant-testes.</p>
+                      <h3 style={{ margin: 0, fontSize: '12px', fontWeight: 600 }}>Executar testes (QA Runner)</h3>
+                      <p style={{ margin: '2px 0 0', fontSize: '10.5px', color: 'var(--qa-muted)' }}>Escolha uma categoria, rode os testes e acompanhe os logs e resultados aqui mesmo.</p>
                     </div>
                     <button
                       type="button"
@@ -2039,8 +2102,8 @@ export function App(): ReactElement {
                               const color = isError ? 'var(--qa-error)' : done ? 'var(--qa-success)' : active ? 'var(--qa-info)' : 'var(--qa-border)';
                               return (
                                 <div key={s} style={{ display: 'flex', alignItems: 'center', flex: i < stages.length - 1 ? 1 : 'none' }}>
-                                  <span style={{ fontSize: '9px', fontWeight: 700, color, padding: '1px 4px', borderRadius: '3px', border: `1px solid ${color}33`, background: `${color}11`, whiteSpace: 'nowrap' }}>
-                                    {active ? '⟳ ' : ''}{s}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '9px', fontWeight: 700, color, padding: '1px 4px', borderRadius: '3px', border: `1px solid ${color}33`, background: `${color}11`, whiteSpace: 'nowrap' }}>
+                                    {active ? <span className="inline-spinner" style={{ width: '8px', height: '8px', color }} /> : null}{s}
                                   </span>
                                   {i < stages.length - 1 && <div style={{ flex: 1, height: '1px', background: done ? 'var(--qa-success)' : 'var(--qa-border)', margin: '0 2px' }} />}
                                 </div>
@@ -2065,7 +2128,8 @@ export function App(): ReactElement {
                       {estado.execucaoTestes.status !== 'executando' && (
                         <div className="qa-inline-runner__result">
                           <span className={`state-chip ${estado.execucaoTestes.status === 'sucesso' ? 'success' : 'danger'}`} style={{ fontSize: '9.5px' }}>
-                            {estado.execucaoTestes.status === 'sucesso' ? '✔ Suite concluída com sucesso!' : '❌ Falhas detectadas nos testes.'}
+                            {estado.execucaoTestes.status === 'sucesso' ? <IconCheck /> : <IconClose />}
+                            {estado.execucaoTestes.status === 'sucesso' ? 'Suíte concluída com sucesso!' : 'Falhas detectadas nos testes.'}
                           </span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             {estado.execucaoTestes.sumarioCaminhoRelativo && (
@@ -2137,14 +2201,14 @@ export function App(): ReactElement {
                                   </span>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                  <span style={{ fontSize: '10px', color: 'var(--qa-muted)', background: 'var(--qa-surface-subtle)', padding: '1px 4px', borderRadius: '3px' }}>
-                                    ⏱️ {falha.duracao}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: 'var(--qa-muted)', background: 'var(--qa-surface-subtle)', padding: '1px 4px', borderRadius: '3px' }}>
+                                    <IconClock style={{ width: '10px', height: '10px' }} /> {falha.duracao}
                                   </span>
                                   <span style={{ fontSize: '10px', color: 'var(--qa-muted)' }}>
                                     {falha.steps} s.
                                   </span>
-                                  <span style={{ fontSize: '10px', color: 'var(--qa-muted)', transition: 'transform 0.15s ease' }}>
-                                    {estaExpandido ? '▼' : '▶'}
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', color: 'var(--qa-muted)' }}>
+                                    {estaExpandido ? <IconChevronDown /> : <IconChevronRight />}
                                   </span>
                                 </div>
                               </div>
@@ -2242,11 +2306,11 @@ export function App(): ReactElement {
                 <section className="panel navigator-panel" aria-labelledby="navigator-title">
                   <div className="section-heading">
                     <div>
-                      <p className="eyebrow" style={{ textTransform: "uppercase", fontSize: "9px", fontWeight: 700, color: "var(--qa-muted)", letterSpacing: "0.5px" }}>Estrutura de Suítes</p>
-                      <h2 id="navigator-title" style={{ fontSize: "13px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
-                        <IconFolder />
-                        <span>Navegador de Testes e Documentos</span>
+                      <h2 id="navigator-title" style={{ fontSize: "13px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", margin: 0 }}>
+                        <IconSearch />
+                        <span>Explorar arquivos de teste</span>
                       </h2>
+                      <p style={{ margin: "2px 0 0", fontSize: "10.5px", color: "var(--qa-muted)" }}>Navegue pelas pastas de Qassistant-testes e abra qualquer arquivo.</p>
                     </div>
                     {estado.navegador ? <span className="badge">{estado.navegador.entradas.length} itens</span> : null}
                   </div>
@@ -2254,39 +2318,49 @@ export function App(): ReactElement {
                   {estado.navegador ? (
                     <>
                       {/* Breadcrumbs de Navegação */}
-                      <div className="navigator-path" style={{ 
-                        margin: "10px 0", 
-                        display: "flex", 
-                        justifyContent: "space-between", 
+                      <div className="navigator-path" style={{
+                        margin: "10px 0",
+                        display: "flex",
+                        justifyContent: "space-between",
                         alignItems: "center",
+                        gap: "8px",
                         background: "var(--qa-surface-subtle)",
                         padding: "6px 10px",
                         borderRadius: "6px",
                         border: "1px solid var(--qa-border)",
                         fontSize: "11px",
-                        boxSizing: "border-box"
+                        boxSizing: "border-box",
+                        minWidth: 0
                       }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "var(--qa-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          <span style={{ fontWeight: 600, color: "var(--qa-foreground)" }}>{estado.navegador.caminhoRelativo || "/"}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "var(--qa-muted)", flex: "1 1 auto", minWidth: 0 }}>
+                          <span
+                            className="text-truncate"
+                            title={estado.navegador.caminhoRelativo || "/"}
+                            style={{ fontWeight: 600, color: "var(--qa-foreground)", direction: "rtl", textAlign: "left" }}
+                          >
+                            {estado.navegador.caminhoRelativo || "/"}
+                          </span>
                         </div>
                         {caminhoPai(estado.navegador.caminhoRelativo) ? (
-                          <button 
-                            type="button" 
-                            className="secondary" 
-                            style={{ 
-                              minHeight: "20px", 
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{
+                              minHeight: "20px",
                               height: "20px",
-                              padding: "0 8px", 
-                              fontSize: "10px", 
-                              display: "flex", 
-                              alignItems: "center", 
+                              padding: "0 8px",
+                              fontSize: "10px",
+                              display: "flex",
+                              alignItems: "center",
                               gap: "4px",
+                              flexShrink: 0,
                               border: "1px solid var(--qa-border)",
                               borderRadius: "4px"
-                            }} 
+                            }}
                             onClick={() => enviar({ tipo: "workspace.abrirCaminho", caminhoRelativo: caminhoPai(estado.navegador?.caminhoRelativo || "") || estado.raizTestes })}
                           >
-                            <span style={{ display: "inline-flex", alignItems: "center", fontSize: "10px" }}>Voltar</span>
+                            <IconArrowLeft />
+                            <span>Voltar</span>
                           </button>
                         ) : null}
                       </div>
@@ -2312,26 +2386,31 @@ export function App(): ReactElement {
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "space-between",
+                                gap: "8px",
                                 padding: "6px 10px",
                                 borderRadius: "4px",
                                 background: "transparent",
                                 transition: "background 0.1s ease-in-out",
                                 cursor: "pointer",
-                                boxSizing: "border-box"
+                                boxSizing: "border-box",
+                                minWidth: 0
                               }}
                               className="navigator-row-hover"
                               onClick={() => enviar({ tipo: "workspace.abrirCaminho", caminhoRelativo: entrada.caminhoRelativo })}
                             >
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 auto", minWidth: 0 }}>
                                 <span style={{ color: isFolder ? "var(--qa-link)" : "var(--qa-muted)", display: "flex", alignItems: "center", flexShrink: 0 }}>
                                   {isFolder ? <IconFolder /> : <IconFile />}
                                 </span>
-                                <span style={{ 
-                                  wordBreak: "break-all", 
-                                  fontSize: "11.5px",
-                                  color: isFolder ? "var(--qa-foreground)" : "var(--qa-muted)",
-                                  fontWeight: isFolder ? 700 : 500
-                                }}>
+                                <span
+                                  className="text-truncate"
+                                  title={entrada.nome}
+                                  style={{
+                                    fontSize: "11.5px",
+                                    color: isFolder ? "var(--qa-foreground)" : "var(--qa-muted)",
+                                    fontWeight: isFolder ? 700 : 500
+                                  }}
+                                >
                                   {entrada.nome}
                                 </span>
                               </div>
@@ -2339,7 +2418,7 @@ export function App(): ReactElement {
                                 {isFolder ? (
                                   <span style={{ fontSize: "9.5px", color: "var(--qa-muted)", display: "flex", alignItems: "center", gap: "3px" }}>
                                     <span>Navegar</span>
-                                    <span>→</span>
+                                    <IconChevronRight />
                                   </span>
                                 ) : (
                                   <>
@@ -2375,7 +2454,7 @@ export function App(): ReactElement {
                         })}
                       </div>
                       {estado.navegador.arquivoAberto ? (
-                        <p className="navigator-opened" style={{ marginTop: "var(--qa-space-2)", fontSize: "10px", color: "var(--qa-muted)" }}>
+                        <p className="navigator-opened" style={{ marginTop: "var(--qa-space-2)", fontSize: "10px", color: "var(--qa-muted)", overflowWrap: "anywhere" }}>
                           Arquivo em exibição no editor: <code>{estado.navegador.arquivoAberto}</code>
                         </p>
                       ) : null}
@@ -2386,14 +2465,14 @@ export function App(): ReactElement {
                 <section className="panel directory-panel" aria-labelledby="estrutura-title">
                   <div className="section-heading">
                     <div>
-                      <p className="eyebrow" style={{ textTransform: "uppercase", fontSize: "9px", fontWeight: 700, color: "var(--qa-muted)", letterSpacing: "0.5px" }}>Navegação Direta</p>
-                      <h2 id="estrutura-title" style={{ fontSize: "13px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+                      <h2 id="estrutura-title" style={{ fontSize: "13px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", margin: 0 }}>
                         <IconFolder />
-                        <span>Diretórios e Arquivos Vitais</span>
+                        <span>Atalhos do projeto</span>
                       </h2>
+                      <p style={{ margin: "2px 0 0", fontSize: "10.5px", color: "var(--qa-muted)" }}>Abra direto as pastas e arquivos-chave do QAssistant.</p>
                     </div>
                   </div>
-                  <div className="structure-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                  <div className="structure-grid">
                     {resumoEstrutura.map(([rotulo, presente, caminho]) => (
                       <button 
                         className="structure-item" 
@@ -2405,7 +2484,7 @@ export function App(): ReactElement {
                           justifyContent: "space-between",
                           border: "1px solid var(--qa-border)",
                           borderRadius: "6px",
-                          background: presente ? "var(--qa-surface)" : "rgba(255, 255, 255, 0.02)",
+                          background: presente ? "var(--qa-surface)" : "color-mix(in srgb, var(--qa-surface) 50%, transparent)",
                           color: presente ? "var(--qa-foreground)" : "var(--qa-muted)",
                           cursor: presente ? "pointer" : "not-allowed",
                           fontWeight: 600,
@@ -2422,9 +2501,9 @@ export function App(): ReactElement {
                           <span>{rotulo}</span>
                         </span>
                         {presente ? (
-                          <span style={{ fontSize: "10px", color: "var(--qa-link)" }}>Visitar →</span>
+                          <span style={{ fontSize: "10px", color: "var(--qa-link)", display: "inline-flex", alignItems: "center", gap: "2px" }}>Visitar <IconChevronRight /></span>
                         ) : (
-                          <span style={{ fontSize: "9px", color: "var(--qa-muted)", background: "rgba(255, 255, 255, 0.04)", padding: "1px 4px", borderRadius: "3px" }}>Ausente</span>
+                          <span style={{ fontSize: "9px", color: "var(--qa-muted)", background: "var(--qa-surface-subtle)", padding: "1px 4px", borderRadius: "3px" }}>Ausente</span>
                         )}
                       </button>
                     ))}
@@ -2441,7 +2520,7 @@ export function App(): ReactElement {
                     {/* Header do Pacote de Valdação */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--qa-surface-subtle)', padding: '8px 12px', border: '1px solid var(--qa-border)', borderRadius: '6px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <span style={{ fontSize: '9px', color: 'var(--qa-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Entidade Monitorada de QA</span>
+                        <span style={{ fontSize: '9px', color: 'var(--qa-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Pacote de Validação</span>
                         <h2 style={{ fontSize: '13px', fontWeight: 700, margin: 0, color: 'var(--qa-foreground)' }}>
                           {formatarNomePacote(estado.ultimoPacoteValidacao.id)}
                         </h2>
@@ -2462,17 +2541,17 @@ export function App(): ReactElement {
                           onClick={() => setAbaValidacoesFoco('lista')}
                         >
                           <IconArrowLeft />
-                          <span>Voltar para Lista</span>
+                          <span>Voltar</span>
                         </button>
                       </div>
                     </div>
 
-                    {/* ROW 1: Vínculos (compacto) + Assistente de IA — split 38/62, mesma altura */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: '8px', alignItems: 'stretch' }}>
+                    {/* ROW 1: Detalhes (compacto) + Assistente de IA — split 38/62, mesma altura */}
+                    <div className="validacao-detalhe-grid" style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: '8px', alignItems: 'stretch' }}>
 
                       {/* COLUNA ESQUERDA: Vínculos Operacionais compacto */}
                       <div style={{ background: 'var(--qa-surface)', border: '1px solid var(--qa-border)', borderRadius: '6px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--qa-muted)', letterSpacing: '0.4px' }}>Vínculos</span>
+                        <span style={{ fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--qa-muted)', letterSpacing: '0.4px' }}>Detalhes</span>
 
                         {/* Status */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -2567,7 +2646,7 @@ export function App(): ReactElement {
                         </button>
 
                         {!estado.geminiKeyPresente && (
-                          <span style={{ fontSize: '9px', color: '#ff4a4a', textAlign: 'center', display: 'block' }}>
+                          <span style={{ fontSize: '9px', color: 'var(--qa-error)', textAlign: 'center', display: 'block' }}>
                             Forneça a API Key nas configurações.
                           </span>
                         )}
@@ -2668,14 +2747,17 @@ export function App(): ReactElement {
                           <button
                             type="button"
                             className="secondary"
-                            style={{ flex: 1, minHeight: '22px', fontSize: '10.5px', color: '#ff4a4a', borderColor: '#ff4a4a' }}
+                            style={{ flex: 1, minHeight: '22px', fontSize: '10.5px', color: 'var(--qa-error)', borderColor: 'var(--qa-error)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                            disabled={acaoAtiva(`pkg:del:${estado.ultimoPacoteValidacao!.caminhoRelativo}`)}
                             onClick={() => {
+                              iniciarAcao(`pkg:del:${estado.ultimoPacoteValidacao!.caminhoRelativo}`);
                               enviar({ tipo: 'validacao.excluirPacote', caminhoRelativo: estado.ultimoPacoteValidacao!.caminhoRelativo });
                               setConfirmandoExclusao(null);
                               setAbaValidacoesFoco('lista');
                             }}
                           >
-                            Confirmar exclusão
+                            {acaoAtiva(`pkg:del:${estado.ultimoPacoteValidacao!.caminhoRelativo}`) && <Spinner size={9} />}
+                            <span>Confirmar exclusão</span>
                           </button>
                           <button
                             type="button"
@@ -2690,7 +2772,7 @@ export function App(): ReactElement {
                         <button
                           type="button"
                           className="secondary"
-                          style={{ width: '100%', minHeight: '22px', fontSize: '10.5px', color: '#ff4a4a', borderColor: '#ff4a4a' }}
+                          style={{ width: '100%', minHeight: '22px', fontSize: '10.5px', color: 'var(--qa-error)', borderColor: 'var(--qa-error)' }}
                           onClick={() => setConfirmandoExclusao(estado.ultimoPacoteValidacao!.caminhoRelativo)}
                         >
                           Excluir Validação
@@ -2724,13 +2806,16 @@ export function App(): ReactElement {
                         </button>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div className="qa-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {estado.pacotesDisponiveis.map((p) => {
                           const ativo = estado.ultimoPacoteValidacao?.caminhoRelativo === p.caminhoRelativo;
+                          const selecionando = acaoAtiva(`pkg:sel:${p.caminhoRelativo}`);
+                          const excluindo = acaoAtiva(`pkg:del:${p.caminhoRelativo}`);
+                          const selecionarPacote = () => { iniciarAcao(`pkg:sel:${p.caminhoRelativo}`); enviar({ tipo: 'validacao.selecionarPacote', caminhoRelativo: p.caminhoRelativo }); };
                           return (
-                            <div key={p.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', border: ativo ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)', borderRadius: '4px', background: ativo ? 'var(--qa-surface-subtle)' : 'var(--qa-surface)', fontSize: '11px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', cursor: 'pointer', flex: 1 }} onClick={() => enviar({ tipo: 'validacao.selecionarPacote', caminhoRelativo: p.caminhoRelativo })}>
-                                <span style={{ fontWeight: 600, color: ativo ? 'var(--qa-link)' : 'inherit' }}>
+                            <div key={p.id} className="validacao-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', border: ativo ? '1px solid var(--qa-link)' : '1px solid var(--qa-border)', borderRadius: '4px', background: ativo ? 'var(--qa-surface-subtle)' : 'var(--qa-surface)', fontSize: '11px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', cursor: 'pointer', flex: 1, minWidth: 0 }} onClick={selecionarPacote}>
+                                <span className="text-truncate" style={{ fontWeight: 600, color: ativo ? 'var(--qa-link)' : 'inherit' }}>
                                   {formatarNomePacote(p.id)}
                                 </span>
                                 <span style={{ fontSize: '9.5px', color: 'var(--qa-muted)' }}>Gerado em {new Date(p.dataCriacao).toLocaleDateString('pt-BR')} às {new Date(p.dataCriacao).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -2740,18 +2825,21 @@ export function App(): ReactElement {
                                   type="button"
                                   className="secondary"
                                   style={{ fontSize: '10px', minHeight: '22px', padding: '2px 8px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                  onClick={() => enviar({ tipo: 'validacao.selecionarPacote', caminhoRelativo: p.caminhoRelativo })}
+                                  disabled={selecionando || excluindo}
+                                  onClick={selecionarPacote}
                                 >
-                                  <IconEye />
-                                  <span>{ativo ? 'Visualizando' : 'Visualizar'}</span>
+                                  {selecionando ? <Spinner size={8} /> : <IconEye />}
+                                  <span>{selecionando ? 'Abrindo...' : ativo ? 'Visualizando' : 'Visualizar'}</span>
                                 </button>
                                 <button
                                   type="button"
                                   className="secondary"
                                   aria-label={confirmandoExclusao === p.caminhoRelativo ? 'Confirmar exclusão' : 'Excluir Validação'}
-                                  style={{ fontSize: '10px', minHeight: '22px', padding: '2px 6px', color: '#ff4a4a', borderColor: confirmandoExclusao === p.caminhoRelativo ? '#ff4a4a' : 'rgba(255, 74, 74, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }}
+                                  disabled={excluindo}
+                                  style={{ fontSize: '10px', minHeight: '22px', padding: '2px 6px', color: 'var(--qa-error)', borderColor: confirmandoExclusao === p.caminhoRelativo ? 'var(--qa-error)' : 'color-mix(in srgb, var(--qa-error) 35%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px' }}
                                   onClick={() => {
                                     if (confirmandoExclusao === p.caminhoRelativo) {
+                                      iniciarAcao(`pkg:del:${p.caminhoRelativo}`);
                                       enviar({ tipo: 'validacao.excluirPacote', caminhoRelativo: p.caminhoRelativo });
                                       setConfirmandoExclusao(null);
                                     } else {
@@ -2760,7 +2848,7 @@ export function App(): ReactElement {
                                   }}
                                   onBlur={() => { if (confirmandoExclusao === p.caminhoRelativo) setConfirmandoExclusao(null); }}
                                 >
-                                  <IconTrash />
+                                  {excluindo ? <Spinner size={8} /> : <IconTrash />}
                                   {confirmandoExclusao === p.caminhoRelativo && <span style={{ fontSize: '9px' }}>Confirmar?</span>}
                                 </button>
                               </div>
@@ -2802,18 +2890,21 @@ export function App(): ReactElement {
                     </span>
                     <button
                       type="button"
-                      style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px' }}
+                      style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                      disabled={acaoAtiva('cfg:gemini')}
                       onClick={() => {
                         if (!editApiKey.trim()) {
                           setMensagem('Insira um valor de API Key válido.');
                           return;
                         }
+                        iniciarAcao('cfg:gemini');
                         enviar({ tipo: 'config.salvarChaveGemini', chave: editApiKey.trim() });
                         setEditApiKey('');
                         setApiKeySalva(true);
                       }}
                     >
-                      Salvar Chave Gemini
+                      {acaoAtiva('cfg:gemini') && <Spinner size={9} />}
+                      <span>{acaoAtiva('cfg:gemini') ? 'Salvando...' : 'Salvar Chave Gemini'}</span>
                     </button>
                   </div>
                 </section>
@@ -2845,18 +2936,21 @@ export function App(): ReactElement {
                       <a href={`${OPENPROJECT_URL_PADRAO}my/access_token`} target="_blank" rel="noreferrer" className="setup-inline-link">Ainda não tem um token?</a>
                       <button
                         type="button"
-                        style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px' }}
+                        style={{ fontSize: '11px', minHeight: '22px', padding: '0 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                        disabled={acaoAtiva('cfg:op')}
                         onClick={() => {
                           if (!editOpApiKey.trim()) {
                             setMensagem('Insira um valor de API Key válido.');
                             return;
                           }
+                          iniciarAcao('cfg:op');
                           enviar({ tipo: 'config.salvarChaveOpenProject', chave: editOpApiKey.trim() });
                           setEditOpApiKey('');
                           setOpOpApiKeySalva(true);
                         }}
                       >
-                        Salvar token OpenProject
+                        {acaoAtiva('cfg:op') && <Spinner size={9} />}
+                        <span>{acaoAtiva('cfg:op') ? 'Salvando...' : 'Salvar token OpenProject'}</span>
                       </button>
                     </div>
                   </div>
@@ -2928,7 +3022,16 @@ export function App(): ReactElement {
                       </div>
                       <div className="setup-inline-help" style={{ marginTop: '8px' }}>
                         <span>Use o token salvo para carregar os projetos disponíveis e escolher um deles.</span>
-                        <button type="button" className="secondary" style={{ minHeight: '22px', fontSize: '11px' }} onClick={carregarProjetosOpenProject}>Carregar projetos</button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ minHeight: '22px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          disabled={validacaoOpenProject.status === 'carregando'}
+                          onClick={carregarProjetosOpenProject}
+                        >
+                          {validacaoOpenProject.status === 'carregando' && <Spinner size={9} />}
+                          <span>{validacaoOpenProject.status === 'carregando' ? 'Carregando...' : 'Carregar projetos'}</span>
+                        </button>
                       </div>
                       {validacaoOpenProject.status !== 'ocioso' && (
                         <div className={`inline-alert ${validacaoOpenProject.status === 'sucesso' ? 'success' : validacaoOpenProject.status === 'erro' ? 'danger' : 'info'}`} style={{ marginTop: '8px' }}>
@@ -2947,6 +3050,7 @@ export function App(): ReactElement {
                 </section>
               </>
             )}
+            </div>
           </div>
         )}
       </div>
@@ -3442,24 +3546,24 @@ export function App(): ReactElement {
                 href={`${setup.openProjectUrlBase || 'https://openproject.ormel.com.br'}/work_packages/${taskAtiva.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ fontSize: '11px', color: 'var(--qa-link)', textDecoration: 'underline', fontWeight: 600 }}
+                style={{ fontSize: '11px', color: 'var(--qa-link)', textDecoration: 'underline', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px' }}
               >
-                Abrir no OpenProject ↗
+                Abrir no OpenProject <IconExternalLink />
               </a>
               <div style={{ display: 'flex', gap: '6px' }}>
-                <button
-                  type="button"
-                  className="secondary"
-                  style={{ fontSize: '11px', minHeight: '22px', padding: '0 10px' }}
-                  onClick={() => {
-                    const input = document.getElementById('op-task-id-input') as HTMLInputElement;
-                    if (input) { input.value = taskAtiva.id.toString(); }
-                    setSelectedTask(null);
-                    setMensagem(`Tarefa #${taskAtiva.id} selecionada no formulário de vínculo.`);
-                  }}
-                >
-                  Vincular
-                </button>
+                {estado.ultimoPacoteValidacao && (
+                  <button
+                    type="button"
+                    style={{ fontSize: '11px', minHeight: '22px', padding: '0 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onClick={() => {
+                      setModalPublicarOP({ aberto: true, taskId: taskAtiva.id.toString(), tipoTask: 'Task' });
+                      setSelectedTask(null);
+                    }}
+                  >
+                    <IconExternalLink />
+                    <span>Publicar nesta tarefa</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   className="secondary"
@@ -3745,11 +3849,11 @@ const CommitItem: FC<CommitItemProps> = ({ commit, selecionado, onToggle }) => (
     />
     <div className="commit-item__content">
       <div className="commit-item__header">
-        <span className="commit-item__subject text-truncate">
+        <span className="commit-item__subject text-truncate" title={commit.assunto}>
           {commit.assunto}
         </span>
         {commit.repositorioNome && (
-          <span className="commit-repo-badge">
+          <span className="commit-repo-badge text-truncate" title={commit.repositorioNome}>
             {commit.repositorioNome}
           </span>
         )}
@@ -3927,7 +4031,7 @@ const TaskItem: FC<TaskItemProps> = ({ task, onEnviar, onSelect }) => {
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0, marginLeft: '8px' }}>
         <span style={{ 
           fontSize: '9px', 
-          background: 'rgba(255, 255, 255, 0.04)', 
+          background: 'var(--qa-surface-subtle)', 
           border: '1px solid var(--qa-border)', 
           padding: '2px 6px', 
           borderRadius: '4px', 
