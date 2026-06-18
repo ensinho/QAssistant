@@ -1,1 +1,13 @@
 /.env
+
+# Artefatos de build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Pacotes empacotados da extensão (gerados; publicados via Release)
+*.vsix
+
+# Ferramentas locais
+.claude/
+CLAUDE.md
