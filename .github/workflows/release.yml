@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build nucleo (gera os types consumidos pela extensão)
+        run: npm run build:nucleo
+
       - name: Type-check
         run: npm run test
 
