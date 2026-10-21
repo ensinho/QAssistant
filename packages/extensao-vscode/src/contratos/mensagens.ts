@@ -13,11 +13,15 @@ export const SetupWorkspaceSchema = z.object({
   backend: z.string().optional(),
   criarContextoProjeto: z.boolean().default(true),
   criarAssetsAgent: z.boolean().default(true),
+  criarEstruturaTestesPadrao: z.boolean().default(false),
   openProjectHabilitado: z.boolean().default(true),
   openProjectUrlBase: z.string().optional(),
   openProjectProjetoId: z.string().optional(),
   intervaloPollingSegundos: z.number().int().min(15).default(60),
   commitsPadrao: z.number().int().min(1).default(10),
+  padraoBranch: z.string().default('{tipo}/OP-{id}-{slug}'),
+  ferramentaAgente: z.enum(['claude', 'gemini', 'aider', 'custom', 'nenhum']).default('claude'),
+  comandoCustomizado: z.string().optional(),
 });
 
 export type SetupWorkspace = z.infer<typeof SetupWorkspaceSchema>;
@@ -81,12 +85,74 @@ export const MensagemWebviewParaHostSchema = z.discriminatedUnion('tipo', [
   z.object({ tipo: z.literal('testes.verRunDetalhes'), runId: z.string().min(1) }),
   z.object({ tipo: z.literal('openproject.comentarTask'), taskId: z.string().min(1), texto: z.string().min(1) }),
   z.object({ tipo: z.literal('openproject.alterarStatusTask'), taskId: z.string().min(1), statusHref: z.string().min(1), lockVersion: z.number().int() }),
+  z.object({
+    tipo: z.literal('openproject.criarTask'),
+    assunto: z.string().min(1),
+    descricao: z.string().optional(),
+    tipoNome: z.string().optional(),
+    prioridadeNome: z.string().optional(),
+  }),
+  z.object({ tipo: z.literal('openproject.abrirNoNavegador'), taskId: z.string().min(1) }),
+  z.object({ tipo: z.literal('openproject.atribuirAMim'), taskId: z.string().min(1), lockVersion: z.number().int() }),
+  z.object({
+    tipo: z.literal('openproject.registrarTempo'),
+    taskId: z.string().min(1),
+    horas: z.string().min(1),
+    comentario: z.string().optional(),
+  }),
+  z.object({
+    tipo: z.literal('terminal.abrirTerminalTask'),
+    taskId: z.string().min(1),
+    assunto: z.string().min(1),
+    tipoTask: z.string().optional(),
+  }),
+  z.object({ tipo: z.literal('terminal.copiarPromptAgente'), taskId: z.string().min(1) }),
+  z.object({ tipo: z.literal('terminal.executarComando'), comando: z.string().min(1) }),
+  z.object({
+    tipo: z.literal('config.salvarTerminal'),
+    padraoBranch: z.string().min(1),
+    ferramentaAgente: z.enum(['claude', 'gemini', 'aider', 'custom', 'nenhum']),
+    comandoCustomizado: z.string().optional(),
+    comandosRapidos: z.array(z.object({ rotulo: z.string(), comando: z.string() })).optional(),
+  }),
+  z.object({
+    tipo: z.literal('terminal.executarAgenteComTask'),
+    taskId: z.string().min(1),
+    ferramenta: z.enum(['claude', 'gemini', 'aider', 'custom']),
+  }),
+  z.object({ tipo: z.literal('testes.listarScripts'), pasta: z.string().optional() }),
+  z.object({ tipo: z.literal('testes.selecionarArquivoScript') }),
+  z.object({ tipo: z.literal('testes.selecionarPastaScripts') }),
+  z.object({ tipo: z.literal('testes.abrirScriptNoEditor'), caminhoRelativo: z.string().min(1) }),
+  z.object({
+    tipo: z.literal('testes.executarScript'),
+    caminhoRelativo: z.string().min(1),
+    args: z.string().optional(),
+    noTerminal: z.boolean().optional(),
+  }),
+  z.object({ tipo: z.literal('testes.criarScriptExemplo'), nome: z.string().optional() }),
 ]);
 
 export type MensagemWebviewParaHost = z.infer<typeof MensagemWebviewParaHostSchema>;
 
+export interface ScriptQAInfo {
+  nome: string;
+  caminhoRelativo: string;
+  pasta: string;
+  tamanhoBytes?: number;
+  modificadoEm?: string;
+  isExecutable?: boolean;
+}
+
 export interface AssetsPainel {
   logoUri: string;
+}
+
+export interface UsuarioOpenProjectQA {
+  id: number;
+  nome: string;
+  login: string;
+  href: string;
 }
 
 export interface TaskOpenProjectQA {
@@ -95,10 +161,16 @@ export interface TaskOpenProjectQA {
   status: string;
   tipo?: string;
   responsavel?: string;
+  prioridade?: string;
+  autor?: string;
+  dataAtualizacao?: string;
+  dataCriacao?: string;
+  isNova?: boolean;
   descricaoMarkdown?: string;
   comentarios?: { autor: string; dataCriacao: string; texto: string }[];
   canUpdate?: boolean;
   lockVersion?: number;
+  statusHref?: string;
   statusesDisponiveis?: { id: string; nome: string; href: string }[];
 }
 
@@ -222,7 +294,10 @@ export interface EstadoPainel {
   geminiKeyPresente: boolean;
   openProjectKeyPresente: boolean;
   openprojectTasks: TaskOpenProjectQA[];
+  usuarioOpenProject?: UsuarioOpenProjectQA;
   execucaoTestes?: ExecucaoTestes;
+  scriptsQA?: ScriptQAInfo[];
+  pastaScriptsQA?: string;
 }
 
 export type MensagemHostParaWebview =
@@ -230,6 +305,18 @@ export type MensagemHostParaWebview =
   | { tipo: 'workspace.diretorioSelecionado'; campo: CampoDiretorioSetup; caminho: string }
   | { tipo: 'testes.seletorPromptAtualizado'; contexto: ContextoSeletorPrompt; navegador: NavegadorQAssistant }
   | { tipo: 'testes.promptAssistidoGerado'; caminhoRelativo: string; conteudo: string; copiado: boolean }
+  | {
+      tipo: 'testes.scriptsListados';
+      scripts: ScriptQAInfo[];
+      pastaAtual?: string;
+    }
+  | {
+      tipo: 'testes.scriptExecutado';
+      caminhoRelativo: string;
+      sucesso: boolean;
+      codigoSaida: number | null;
+      logs: string;
+    }
   | {
       tipo: 'openproject.validacaoConcluida';
       sucesso: boolean;
@@ -240,6 +327,21 @@ export type MensagemHostParaWebview =
       };
       projetosDisponiveis?: ProjetoOpenProjectDisponivel[];
     }
+  | {
+      tipo: 'openproject.tarefasAtualizadas';
+      tasks: TaskOpenProjectQA[];
+      novasCount: number;
+      timestamp: string;
+    }
+  | {
+      tipo: 'openproject.detalhesCarregados';
+      task: TaskOpenProjectQA;
+    }
+  | {
+      tipo: 'openproject.taskCriada';
+      task: TaskOpenProjectQA;
+    }
+  | { tipo: 'terminal.sucesso'; mensagem: string }
   | { tipo: 'notificacao.info'; mensagem: string }
   | { tipo: 'notificacao.erro'; mensagem: string };
 
@@ -271,6 +373,9 @@ export function criarEstadoInicial(versaoExtensao: string): EstadoPainel {
     geminiKeyPresente: false,
     openProjectKeyPresente: false,
     openprojectTasks: [],
+    usuarioOpenProject: undefined,
+    scriptsQA: [],
+    pastaScriptsQA: '',
     execucaoTestes: {
       categoriaAtiva: null,
       status: 'ocioso',

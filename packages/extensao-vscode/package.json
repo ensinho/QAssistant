@@ -1,11 +1,29 @@
 {
   "name": "qassistant-vscode",
-  "displayName": "QAssistant",
-  "description": "QA operacional com OpenProject, resumos por commits, testes guiados e agents no VS Code.",
+  "displayName": "QAssistant - QA & OpenProject Hub",
+  "description": "QA operacional integrado ao OpenProject, terminal para agentes IA, runner de scripts (.sh) e relatórios em tempo real no VS Code.",
   "version": "2.0.0",
-  "publisher": "ormel",
-  "private": true,
+  "publisher": "EnzoEsmeraldo",
   "icon": "media/qassistant-logo.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ensinho/QAssistant.git"
+  },
+  "homepage": "https://github.com/ensinho/QAssistant#readme",
+  "bugs": {
+    "url": "https://github.com/ensinho/QAssistant/issues"
+  },
+  "license": "MIT",
+  "keywords": [
+    "openproject",
+    "qa",
+    "testing",
+    "terminal",
+    "ai-agents",
+    "automation",
+    "verify",
+    "test-runner"
+  ],
   "galleryBanner": {
     "color": "101820",
     "theme": "dark"
@@ -102,6 +120,8 @@
   "dependencies": {
     "@qassistant/nucleo": "0.1.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "lucide-react": "^1.61.0",
+    "marked": "^18.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zod": "^3.24.1"
@@ -112,6 +132,5 @@
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.28.0",
     "vite": "^6.0.7"
-  },
-  "license": "UNLICENSED"
+  }
 }

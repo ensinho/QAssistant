@@ -21,6 +21,23 @@ export interface CaminhosProjeto {
   repositorios?: string[];
 }
 
+export interface ComandoRapidoTerminal {
+  rotulo: string;
+  comando: string;
+}
+
+export interface ConfiguracaoTerminalAgentes {
+  padraoBranch: string;
+  ferramentaAgente: 'claude' | 'gemini' | 'aider' | 'custom' | 'nenhum';
+  comandoCustomizado?: string;
+  comandosRapidos?: ComandoRapidoTerminal[];
+}
+
+export interface ConfiguracaoScriptsQA {
+  pastaScripts?: string;
+  scriptsFavoritos?: string[];
+}
+
 export interface ConfiguracaoQAssistant {
   versao: 1;
   produto: 'QAssistant';
@@ -30,6 +47,7 @@ export interface ConfiguracaoQAssistant {
   setup: {
     criarContextoProjeto: boolean;
     criarAssetsAgent: boolean;
+    criarEstruturaTestesPadrao?: boolean;
   };
   caminhos: CaminhosProjeto;
   openProject: {
@@ -41,6 +59,8 @@ export interface ConfiguracaoQAssistant {
   resumos: {
     commitsPadrao: number;
   };
+  terminal?: ConfiguracaoTerminalAgentes;
+  scriptsQA?: ConfiguracaoScriptsQA;
 }
 
 export interface EstruturaWorkspaceQAssistant {
