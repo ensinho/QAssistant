@@ -17,7 +17,9 @@ export function inicializarWorkspaceQAssistant(raizWorkspace: string, configurac
   const relativaConfiguracao = paraPosix(path.relative(raizWorkspace, resultadoConfiguracao.caminho));
   criados.push(relativaConfiguracao);
 
-  criarEstruturaTestes(raizWorkspace, criados, preservados);
+  if (resultadoConfiguracao.configuracao.setup.criarEstruturaTestesPadrao) {
+    criarEstruturaTestes(raizWorkspace, criados, preservados);
+  }
   if (resultadoConfiguracao.configuracao.setup.criarContextoProjeto) {
     criarContextoProjeto(raizWorkspace, criados, preservados);
   }

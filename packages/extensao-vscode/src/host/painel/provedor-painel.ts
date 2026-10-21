@@ -1,10 +1,11 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn as cpSpawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import {
   carregarConfiguracaoWorkspace,
+  salvarConfiguracaoWorkspace,
   type CommitPacoteValidacao,
   ConfiguracaoQAssistant,
   criarPacoteValidacaoRascunho,
@@ -24,16 +25,23 @@ import {
   MensagemWebviewParaHostSchema,
   NavegadorQAssistant,
   PromptAssistidoTeste,
+  ScriptQAInfo,
   SetupWorkspace,
   StackTesteAssistido,
   TaskOpenProjectQA,
   TipoTesteAssistido,
+  UsuarioOpenProjectQA,
 } from '../../contratos/mensagens';
 import { obterRaizWorkspace } from '../servicos/workspace';
 import { PainelTestesAba } from './painel-testes-aba';
+import { ClienteOpenProject } from '../servicos/openproject/cliente-api';
+import { LiveSyncOpenProject } from '../servicos/openproject/live-sync';
+import { PonteTerminalAgente } from '../servicos/terminal/terminal-bridge';
+import { ServicoSegredos } from '../servicos/segredos';
 
 const execFileAsync = promisify(execFile);
-const OPENPROJECT_URL_PADRAO = 'http://openproject.ormel.com.br/';
+const OPENPROJECT_URL_PADRAO = 'https://openproject.ormel.com.br';
+const OPENPROJECT_PROJETO_PADRAO = process.env.OPENPROJECT_PROJECT || '28';
 
 interface ProjetoOpenProjectResolvido {
   apiHref: string;
@@ -125,6 +133,9 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
   private geminiKeyPresente = false;
   private openProjectKeyPresente = false;
   private openprojectTasks: TaskOpenProjectQA[] = [];
+  private usuarioOpenProject?: UsuarioOpenProjectQA;
+  private scriptsQA: ScriptQAInfo[] = [];
+  private pastaScriptsQA: string = '';
   private painelAba: PainelTestesAba | null = null;
   private currentRunId: string | null = null;
   private execucaoTestes = {
@@ -149,10 +160,31 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     branch: '',
     repositorios: [],
   };
+  private ponteTerminal: PonteTerminalAgente;
+  private liveSync: LiveSyncOpenProject;
+  private servicoSegredos: ServicoSegredos;
 
   constructor(private readonly contexto: vscode.ExtensionContext, private readonly saida: vscode.OutputChannel) {
     // Permitir requisições para servidores locais/on-premise do OpenProject sem assinar certificados estritos
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    this.servicoSegredos = new ServicoSegredos(this.contexto.secrets);
+    this.ponteTerminal = new PonteTerminalAgente(this.saida);
+    this.liveSync = new LiveSyncOpenProject(this.obterContextoClienteOpenProject.bind(this), this.saida);
+    this.liveSync.onSync((evento) => {
+      this.openprojectTasks = evento.todas;
+      this.enviar({
+        tipo: 'openproject.tarefasAtualizadas',
+        tasks: evento.todas,
+        novasCount: evento.novas.length,
+        timestamp: new Date().toISOString(),
+      });
+      if (evento.novas.length > 0) {
+        this.enviar({
+          tipo: 'notificacao.info',
+          mensagem: `${evento.novas.length} nova(s) tarefa(s) detectada(s) no OpenProject!`,
+        });
+      }
+    });
   }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
@@ -167,15 +199,24 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     this.webview.html = this.criarHtml(this.webview);
     this.webview.onDidReceiveMessage((mensagemDesconhecida) => void this.receberMensagem(mensagemDesconhecida));
     // Carregar presença de chave Gemini e OpenProject de forma assíncrona ao abrir o painel
-    void this.contexto.secrets.get('qassistant.geminiApiKey').then((chave) => {
+    void this.servicoSegredos.obterChaveGemini().then((chave) => {
       this.geminiKeyPresente = !!chave;
     });
-    void this.contexto.secrets.get('qassistant.openProjectApiKey').then((chave) => {
+    void this.servicoSegredos.obterChaveOpenProject().then((chave) => {
       this.openProjectKeyPresente = !!chave;
+      if (chave) {
+        void this.listarTasksOpenProject();
+      }
     });
     // Carregar histórico persistente do disco
     const raiz = obterRaizWorkspace();
-    if (raiz) this.carregarHistoricoPersistente(raiz);
+    if (raiz) {
+      this.carregarHistoricoPersistente(raiz);
+      const configuracao = carregarConfiguracaoWorkspace(raiz);
+      const intervalo = configuracao?.openProject?.intervaloPollingSegundos || 30;
+      this.liveSync.iniciar(intervalo);
+      void this.listarScriptsWorkspace(configuracao?.scriptsQA?.pastaScripts);
+    }
   }
 
   async atualizar(): Promise<void> {
@@ -211,7 +252,10 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
     this.navegador = this.criarNavegadorInterno(raizWorkspace, RAIZ_TESTES_QASSISTANT);
     await this.carregarCommits(configuracao.resumos.commitsPadrao, false);
     this.saida.appendLine(`Workspace inicializado: ${resultado.criados.length} itens criados, ${resultado.preservados.length} preservados.`);
-    this.enviar({ tipo: 'notificacao.info', mensagem: `Setup concluido: ${resultado.criados.length} itens criados e ${resultado.preservados.length} preservados.` });
+    this.enviar({ tipo: 'notificacao.info', mensagem: `Setup concluido com sucesso!` });
+    this.liveSync.resetarHistorico();
+    this.liveSync.iniciar(configuracao.openProject?.intervaloPollingSegundos || 30);
+    void this.listarTasksOpenProject();
     await this.atualizar();
   }
 
@@ -227,6 +271,7 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
         case 'painel.carregado':
         case 'painel.atualizar':
           await this.atualizar();
+          void this.listarTasksOpenProject();
           return;
         case 'workspace.inicializar':
           await this.inicializarWorkspace(resultado.data.setup);
@@ -348,6 +393,51 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
           return;
         case 'openproject.alterarStatusTask':
           await this.alterarStatusTaskOpenProject(resultado.data.taskId, resultado.data.statusHref, resultado.data.lockVersion);
+          return;
+        case 'openproject.criarTask':
+          await this.criarTaskOpenProject(resultado.data.assunto, resultado.data.descricao, resultado.data.tipoNome, resultado.data.prioridadeNome);
+          return;
+        case 'openproject.abrirNoNavegador':
+          await this.abrirTaskNoNavegador(resultado.data.taskId);
+          return;
+        case 'openproject.atribuirAMim':
+          await this.atribuirTaskAMim(resultado.data.taskId, resultado.data.lockVersion);
+          return;
+        case 'openproject.registrarTempo':
+          await this.registrarTempoOpenProject(resultado.data.taskId, resultado.data.horas, resultado.data.comentario);
+          return;
+        case 'terminal.abrirTerminalTask':
+          await this.abrirTerminalTask(resultado.data.taskId, resultado.data.assunto, resultado.data.tipoTask);
+          return;
+        case 'terminal.copiarPromptAgente':
+          await this.copiarPromptAgente(resultado.data.taskId);
+          return;
+        case 'terminal.executarComando':
+          await this.executarComandoTerminal(resultado.data.comando);
+          return;
+        case 'config.salvarTerminal':
+          await this.salvarConfiguracaoTerminal(resultado.data);
+          return;
+        case 'terminal.executarAgenteComTask':
+          await this.executarAgenteComTask(resultado.data.taskId, resultado.data.ferramenta);
+          return;
+        case 'testes.listarScripts':
+          await this.listarScriptsWorkspace(resultado.data.pasta);
+          return;
+        case 'testes.selecionarArquivoScript':
+          await this.selecionarArquivoScript();
+          return;
+        case 'testes.selecionarPastaScripts':
+          await this.selecionarPastaScripts();
+          return;
+        case 'testes.abrirScriptNoEditor':
+          await this.abrirScriptNoEditor(resultado.data.caminhoRelativo);
+          return;
+        case 'testes.executarScript':
+          await this.executarScript(resultado.data.caminhoRelativo, resultado.data.args, resultado.data.noTerminal);
+          return;
+        case 'testes.criarScriptExemplo':
+          await this.criarScriptExemplo(resultado.data.nome);
           return;
       }
     } catch (error) {
@@ -472,7 +562,7 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
       ...estado,
       assets: { logoUri: this.criarUriLogo() },
       workspaceAberto: true,
-      workspaceInicializado: estrutura.configuracaoPresente && estrutura.qassistantTestesPresente,
+      workspaceInicializado: estrutura.configuracaoPresente,
       raizWorkspace,
       raizTestes,
       raizContexto: configuracao?.caminhos.raizContexto || RAIZ_CONTEXTO_PROJETO,
@@ -487,7 +577,10 @@ export class ProvedorPainel implements vscode.WebviewViewProvider {
       geminiKeyPresente: this.geminiKeyPresente,
       openProjectKeyPresente: this.openProjectKeyPresente,
       openprojectTasks: this.openprojectTasks,
+      usuarioOpenProject: this.usuarioOpenProject,
       execucaoTestes: this.execucaoTestes,
+      scriptsQA: this.scriptsQA,
+      pastaScriptsQA: this.pastaScriptsQA,
     };
   }
 
@@ -1062,9 +1155,13 @@ ${resumoConteudo}`;
   }
 
   private obterBaseUrlOpenProject(configuracao?: any): string {
-    let url = configuracao?.openProject?.urlBase || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || OPENPROJECT_URL_PADRAO;
-    if (url.endsWith('/')) {
-      url = url.substring(0, url.length - 1);
+    let url = configuracao?.openProject?.urlBase || process.env.OPENPROJECT_URL || process.env.PROJECT_AI_OPENPROJECT_BASE_URL || OPENPROJECT_URL_PADRAO;
+    url = String(url || '').trim().replace(/\/+$/, '');
+    if (url.startsWith('http://openproject.ormel.com.br')) {
+      url = url.replace('http://', 'https://');
+    }
+    if (url.endsWith('/api/v3')) {
+      url = url.slice(0, -'/api/v3'.length);
     }
     return url;
   }
@@ -1125,30 +1222,19 @@ ${resumoConteudo}`;
     };
   }
 
-  private async resolverProjetoOpenProject(baseUrl: string, rawAuth: string, referenciaInformada?: string): Promise<ProjetoOpenProjectResolvido> {
-    const referencia = String(referenciaInformada || 'medsystem').trim() || 'medsystem';
-    const projetoDireto = await this.buscarProjetoOpenProject(baseUrl, rawAuth, referencia);
-    if (projetoDireto) {
-      return this.mapearProjetoOpenProject(projetoDireto, referencia);
-    }
-
-    const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
-    const referenciaNormalizada = this.normalizarTextoBusca(referencia);
-    const projeto = projetos.find((item) => {
-      const nome = this.normalizarTextoBusca(item.nome);
-      const identificador = this.normalizarTextoBusca(String(item.identificador || ''));
-      return nome === referenciaNormalizada || identificador === referenciaNormalizada;
-    });
-
-    if (!projeto) {
-      throw new Error(`Projeto "${referencia}" não encontrado no OpenProject. Use o nome exibido no projeto ou o identificador atual.`);
-    }
-
-    return projeto;
+  private async resolverProjetoOpenProject(baseUrl: string, _rawAuth: string, referenciaInformada?: string): Promise<ProjetoOpenProjectResolvido> {
+    const apiKey = (await this.obterChaveOpenProject()) || '';
+    const cliente = new ClienteOpenProject(baseUrl, apiKey);
+    const res = await cliente.resolverProjeto(referenciaInformada);
+    return {
+      apiHref: res.apiHref,
+      identificador: res.identifier,
+      nome: res.nome,
+    };
   }
 
   private montarUrlWebTaskOpenProject(baseUrl: string, projeto: ProjetoOpenProjectResolvido, taskId: string): string {
-    if (projeto.identificador) {
+    if (projeto.identificador && projeto.identificador !== 'global') {
       return `${baseUrl}/projects/${projeto.identificador}/work_packages/${taskId}`;
     }
     return `${baseUrl}/work_packages/${taskId}`;
@@ -1156,7 +1242,7 @@ ${resumoConteudo}`;
 
   private async validarConexaoOpenProject(urlBase: string, projetoRef?: string, tokenInformado?: string): Promise<void> {
     const baseUrl = this.obterBaseUrlOpenProject({ openProject: { urlBase } });
-    const apiKey = String(tokenInformado || '').trim() || await this.obterChaveOpenProject();
+    const apiKey = String(tokenInformado || '').trim() || (await this.obterChaveOpenProject());
 
     if (!apiKey) {
       this.enviar({
@@ -1168,47 +1254,35 @@ ${resumoConteudo}`;
     }
 
     try {
-      const rawAuth = this.criarAuthOpenProject(apiKey);
-      const usuarioResposta = await fetch(`${baseUrl}/api/v3/users/me`, {
-        headers: { Authorization: `Basic ${rawAuth}`, Accept: 'application/hal+json' },
-      });
-
-      if (!usuarioResposta.ok) {
-        throw new Error('Token inválido ou sem acesso ao OpenProject informado.');
-      }
-
-      const projetos = await this.listarProjetosOpenProjectDisponiveis(baseUrl, rawAuth);
-      const projeto = projetoRef?.trim()
-        ? await this.resolverProjetoOpenProject(baseUrl, rawAuth, projetoRef)
-        : undefined;
+      const cliente = new ClienteOpenProject(baseUrl, apiKey);
+      const resultadoTeste = await cliente.testarConexao();
 
       if (tokenInformado?.trim()) {
         await this.contexto.secrets.store('qassistant.openProjectApiKey', tokenInformado.trim());
         this.openProjectKeyPresente = true;
       }
 
+      const projeto = projetoRef?.trim()
+        ? await cliente.resolverProjeto(projetoRef)
+        : undefined;
+
       this.enviar({
         tipo: 'openproject.validacaoConcluida',
         sucesso: true,
-        mensagem: projeto
-          ? `Conexão validada com sucesso para o projeto ${projeto.nome}.`
-          : projetos.length > 0
-            ? `Conexão validada com sucesso. ${projetos.length} projeto(s) disponível(is) para seleção.`
-            : 'Conexão validada com sucesso, mas este token não retornou projetos visíveis para seleção.',
-        projeto: projeto ? { nome: projeto.nome, identificador: projeto.identificador } : undefined,
-        projetosDisponiveis: projetos.map((item) => ({
-          nome: item.nome,
-          identificador: item.identificador || item.nome,
-        })),
+        mensagem: `Conexão autenticada (${resultadoTeste.usuario})! ${resultadoTeste.projetos.length} projeto(s) encontrado(s).`,
+        projeto: projeto ? { nome: projeto.nome, identificador: projeto.identifier } : undefined,
+        projetosDisponiveis: resultadoTeste.projetos,
       });
 
+      // Dispara imediatamente busca de tarefas e atualiza estado
+      void this.listarTasksOpenProject();
       await this.atualizar();
     } catch (err) {
       const mensagem = err instanceof Error ? err.message : String(err);
       this.enviar({
         tipo: 'openproject.validacaoConcluida',
         sucesso: false,
-        mensagem,
+        mensagem: `Falha na conexão: ${mensagem}`,
       });
     }
   }
@@ -1844,6 +1918,45 @@ ${resumoConteudo}`;
     }
   }
 
+  private async atribuirTaskAMim(taskId: string, lockVersion: number): Promise<void> {
+    try {
+      const contexto = await this.obterContextoClienteOpenProject();
+      if (!contexto) {
+        this.enviar({ tipo: 'notificacao.erro', mensagem: 'Conexão com OpenProject não configurada.' });
+        return;
+      }
+      const { cliente } = contexto;
+      if (!this.usuarioOpenProject) {
+        this.usuarioOpenProject = await cliente.obterUsuarioAtual();
+      }
+      const updated = await cliente.atribuirTask(taskId, this.usuarioOpenProject.href, lockVersion);
+      this.openprojectTasks = this.openprojectTasks.map((t) =>
+        t.id === taskId ? { ...t, responsavel: updated.responsavel, lockVersion: updated.lockVersion } : t,
+      );
+      this.enviar({ tipo: 'notificacao.info', mensagem: `Tarefa #${taskId} atribuída a você!` });
+      await this.obterDetalhesOpenProject(taskId);
+      await this.atualizar();
+    } catch (err: any) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao atribuir tarefa: ${err.message}` });
+    }
+  }
+
+  private async registrarTempoOpenProject(taskId: string, horas: string, comentario?: string): Promise<void> {
+    try {
+      const contexto = await this.obterContextoClienteOpenProject();
+      if (!contexto) {
+        this.enviar({ tipo: 'notificacao.erro', mensagem: 'Conexão com OpenProject não configurada.' });
+        return;
+      }
+      const { cliente } = contexto;
+      await cliente.registrarTempo(taskId, horas, comentario);
+      this.enviar({ tipo: 'notificacao.info', mensagem: `Apontamento de ${horas} registrado na tarefa #${taskId}!` });
+      await this.obterDetalhesOpenProject(taskId);
+    } catch (err: any) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao registrar tempo: ${err.message}` });
+    }
+  }
+
   private async obterChaveGemini(): Promise<string | undefined> {
     const secretKey = await this.contexto.secrets.get('qassistant.geminiApiKey');
     if (secretKey) return secretKey;
@@ -2019,13 +2132,11 @@ ${logsSnippet || '(Sem logs)'}
   }
 
   private async obterChaveOpenProject(): Promise<string | undefined> {
-    const secretKey = await this.contexto.secrets.get('qassistant.openProjectApiKey');
-    if (secretKey) return secretKey;
-    return process.env.PROJECT_AI_OPENPROJECT_API_KEY;
+    return this.servicoSegredos.obterChaveOpenProject();
   }
 
   private async salvarChaveOpenProject(chave: string): Promise<void> {
-    await this.contexto.secrets.store('qassistant.openProjectApiKey', chave);
+    await this.servicoSegredos.salvarChaveOpenProject(chave);
     this.openProjectKeyPresente = true;
     this.enviar({ tipo: 'notificacao.info', mensagem: 'OpenProject API Key salva com segurança nos Secrets do VS Code.' });
     await this.atualizar();
@@ -2033,36 +2144,28 @@ ${logsSnippet || '(Sem logs)'}
 
   private async listarTasksOpenProject(): Promise<void> {
     try {
-      const apiKey = await this.obterChaveOpenProject();
-      const raizWorkspace = obterRaizWorkspace();
-      const configuracao = raizWorkspace ? carregarConfiguracaoWorkspace(raizWorkspace) : null;
-      const baseUrl = this.obterBaseUrlOpenProject(configuracao);
-
-      if (!apiKey) {
-        this.enviar({ tipo: 'notificacao.erro', mensagem: 'Configure a OpenProject API Key na aba Configuração do QAssistant, ou defina PROJECT_AI_OPENPROJECT_API_KEY no ambiente.' });
+      const contexto = await this.obterContextoClienteOpenProject();
+      if (!contexto) {
         return;
       }
 
-      const rawAuth = this.criarAuthOpenProject(apiKey);
-      const projeto = await this.resolverProjetoOpenProject(baseUrl, rawAuth, configuracao?.openProject?.projetoId);
-      const url = `${baseUrl}${projeto.apiHref}/work_packages?pageSize=30&sortBy=%5B%5B%22updatedAt%22%2C%22desc%22%5D%5D`;
-
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Basic ${rawAuth}`, 'Accept': 'application/hal+json' },
-      });
-
-      if (!res.ok) {
-        throw new Error(`OpenProject retornou status ${res.status}: ${res.statusText}`);
+      const { cliente, projetoHref } = contexto;
+      if (!this.usuarioOpenProject) {
+        try {
+          this.usuarioOpenProject = await cliente.obterUsuarioAtual();
+        } catch {
+          // silencioso
+        }
       }
+      const tasks = await cliente.listarTasks(projetoHref, 50);
+      this.openprojectTasks = tasks;
 
-      const data = await res.json() as any;
-      this.openprojectTasks = ((data?._embedded?.elements as any[]) || []).map((wp) => ({
-        id: String(wp.id),
-        assunto: (wp.subject as string) || '(sem título)',
-        status: (wp._links?.status?.title as string) || 'Desconhecido',
-        tipo: wp._links?.type?.title as string | undefined,
-        responsavel: wp._links?.assignee?.title as string | undefined,
-      }));
+      this.enviar({
+        tipo: 'openproject.tarefasAtualizadas',
+        tasks,
+        novasCount: 0,
+        timestamp: new Date().toISOString(),
+      });
 
       await this.atualizar();
     } catch (err) {
@@ -2070,7 +2173,8 @@ ${logsSnippet || '(Sem logs)'}
       if (err instanceof Error && (err as any).cause) {
         msg += ` (Causa: ${(err as any).cause.message || String((err as any).cause)})`;
       }
-      this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao listar tasks: ${msg}` });
+      this.saida.appendLine(`[OpenProject] Erro ao listar tasks: ${msg}`);
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao listar tasks do OpenProject: ${msg}` });
     }
   }
 
@@ -2150,6 +2254,7 @@ ${logsSnippet || '(Sem logs)'}
       setup: {
         criarContextoProjeto: setup.criarContextoProjeto,
         criarAssetsAgent: setup.criarAssetsAgent,
+        criarEstruturaTestesPadrao: setup.criarEstruturaTestesPadrao || false,
       },
       caminhos: {
         ...padrao.caminhos,
@@ -2166,6 +2271,12 @@ ${logsSnippet || '(Sem logs)'}
       resumos: {
         commitsPadrao: setup.commitsPadrao,
       },
+      terminal: {
+        padraoBranch: setup.padraoBranch || padrao.terminal?.padraoBranch || '{tipo}/OP-{id}-{slug}',
+        ferramentaAgente: setup.ferramentaAgente || padrao.terminal?.ferramentaAgente || 'claude',
+        comandoCustomizado: setup.comandoCustomizado || padrao.terminal?.comandoCustomizado,
+        comandosRapidos: padrao.terminal?.comandosRapidos,
+      },
     };
   }
 
@@ -2178,11 +2289,15 @@ ${logsSnippet || '(Sem logs)'}
       backend: '',
       criarContextoProjeto: padrao.setup.criarContextoProjeto,
       criarAssetsAgent: padrao.setup.criarAssetsAgent,
+      criarEstruturaTestesPadrao: padrao.setup.criarEstruturaTestesPadrao || false,
       openProjectHabilitado: padrao.openProject.habilitado,
       openProjectUrlBase: OPENPROJECT_URL_PADRAO,
-      openProjectProjetoId: '',
+      openProjectProjetoId: OPENPROJECT_PROJETO_PADRAO,
       intervaloPollingSegundos: padrao.openProject.intervaloPollingSegundos,
       commitsPadrao: padrao.resumos.commitsPadrao,
+      padraoBranch: padrao.terminal?.padraoBranch || '{tipo}/OP-{id}-{slug}',
+      ferramentaAgente: padrao.terminal?.ferramentaAgente || 'claude',
+      comandoCustomizado: padrao.terminal?.comandoCustomizado,
     };
   }
 
@@ -2361,6 +2476,368 @@ ${logsSnippet || '(Sem logs)'}
     } catch (err: any) {
       this.execucaoTestes.status = 'erro';
       this.execucaoTestes.logs += `\nErro ao disparar processo: ${err.message}\n`;
+      await this.atualizar();
+    }
+  }
+
+  private async listarScriptsWorkspace(pastaRelativa?: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+
+    const dirBase = pastaRelativa ? path.resolve(raizWorkspace, pastaRelativa) : raizWorkspace;
+    if (!fs.existsSync(dirBase)) return;
+
+    const pastasIgnoradas = new Set([
+      'node_modules',
+      '.git',
+      '.github',
+      '.vscode',
+      'dist',
+      'build',
+      'out',
+      '.next',
+      '.nuxt',
+      '.turbo',
+      '.cache',
+      'coverage',
+      '.qassistant',
+      'vendor',
+      '.venv',
+      'venv',
+      '__pycache__',
+    ]);
+
+    const encontrados: ScriptQAInfo[] = [];
+
+    const escanear = (dirAtual: string, profundidade: number) => {
+      if (profundidade > 4) return;
+      let entradas: fs.Dirent[] = [];
+      try {
+        entradas = fs.readdirSync(dirAtual, { withFileTypes: true });
+      } catch {
+        return;
+      }
+
+      for (const ent of entradas) {
+        if (ent.name.startsWith('.') && ent.name !== '.scripts') continue;
+        const caminhoAbs = path.join(dirAtual, ent.name);
+
+        if (ent.isDirectory()) {
+          if (!pastasIgnoradas.has(ent.name)) {
+            escanear(caminhoAbs, profundidade + 1);
+          }
+        } else if (ent.isFile()) {
+          const ext = path.extname(ent.name).toLowerCase();
+          const ehSh = ext === '.sh' || ext === '.bash';
+          if (ehSh) {
+            try {
+              const stat = fs.statSync(caminhoAbs);
+              const rel = path.relative(raizWorkspace, caminhoAbs).replace(/\\/g, '/');
+              const isExecutable = (stat.mode & 0o111) !== 0;
+              encontrados.push({
+                nome: ent.name,
+                caminhoRelativo: rel,
+                pasta: path.dirname(rel),
+                tamanhoBytes: stat.size,
+                modificadoEm: stat.mtime.toISOString(),
+                isExecutable,
+              });
+            } catch {
+              // Ignora arquivo sem permissão
+            }
+          }
+        }
+      }
+    };
+
+    escanear(dirBase, 0);
+
+    const pesoNome = (nome: string) => {
+      const n = nome.toLowerCase();
+      if (n.includes('verify')) return 0;
+      if (n.includes('test')) return 1;
+      if (n.includes('check')) return 2;
+      if (n.includes('build')) return 3;
+      if (n.includes('run')) return 4;
+      return 10;
+    };
+
+    encontrados.sort((a, b) => {
+      const pA = pesoNome(a.nome);
+      const pB = pesoNome(b.nome);
+      if (pA !== pB) return pA - pB;
+      return a.caminhoRelativo.localeCompare(b.caminhoRelativo);
+    });
+
+    this.scriptsQA = encontrados;
+    this.pastaScriptsQA = pastaRelativa || '';
+    this.enviar({
+      tipo: 'testes.scriptsListados',
+      scripts: this.scriptsQA,
+      pastaAtual: this.pastaScriptsQA,
+    });
+    await this.atualizar();
+  }
+
+  private async selecionarArquivoScript(): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Nenhum workspace aberto.' });
+      return;
+    }
+
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: true,
+      canSelectFolders: false,
+      canSelectMany: false,
+      defaultUri: vscode.Uri.file(raizWorkspace),
+      filters: {
+        'Scripts Shell (*.sh)': ['sh', 'bash'],
+        'Todos os Arquivos': ['*'],
+      },
+      openLabel: 'Selecionar Script',
+      title: 'Selecione um script de validação (.sh)',
+    });
+
+    if (uris && uris.length > 0) {
+      const caminhoEscolhido = uris[0].fsPath;
+      const rel = path.relative(raizWorkspace, caminhoEscolhido).replace(/\\/g, '/');
+      const nome = path.basename(caminhoEscolhido);
+      const stat = fs.statSync(caminhoEscolhido);
+      const jaExiste = this.scriptsQA.find((s) => s.caminhoRelativo === rel);
+      if (!jaExiste) {
+        this.scriptsQA.unshift({
+          nome,
+          caminhoRelativo: rel,
+          pasta: path.dirname(rel),
+          tamanhoBytes: stat.size,
+          modificadoEm: stat.mtime.toISOString(),
+          isExecutable: (stat.mode & 0o111) !== 0,
+        });
+      }
+      this.enviar({
+        tipo: 'notificacao.info',
+        mensagem: `Script "${nome}" vinculado com sucesso ao QA Runner!`,
+      });
+      await this.atualizar();
+    }
+  }
+
+  private async selecionarPastaScripts(): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Nenhum workspace aberto.' });
+      return;
+    }
+
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri: vscode.Uri.file(raizWorkspace),
+      openLabel: 'Selecionar Pasta',
+      title: 'Selecione a pasta de scripts do projeto',
+    });
+
+    if (uris && uris.length > 0) {
+      const pastaEscolhida = uris[0].fsPath;
+      const rel = path.relative(raizWorkspace, pastaEscolhida).replace(/\\/g, '/') || '.';
+      this.pastaScriptsQA = rel;
+
+      const config = carregarConfiguracaoWorkspace(raizWorkspace);
+      if (config) {
+        config.scriptsQA = { ...config.scriptsQA, pastaScripts: rel };
+        salvarConfiguracaoWorkspace(raizWorkspace, config);
+      }
+
+      await this.listarScriptsWorkspace(rel);
+      this.enviar({
+        tipo: 'notificacao.info',
+        mensagem: `Pasta de scripts configurada para "${rel}".`,
+      });
+    }
+  }
+
+  private async abrirScriptNoEditor(caminhoRelativo: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+    const caminhoAbs = path.resolve(raizWorkspace, caminhoRelativo);
+    if (!fs.existsSync(caminhoAbs)) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Arquivo não encontrado: ${caminhoRelativo}` });
+      return;
+    }
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(caminhoAbs));
+    await vscode.window.showTextDocument(doc, { preview: false });
+  }
+
+  private async criarScriptExemplo(nome: string = 'verify.sh'): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+
+    const nomeArquivo = nome.endsWith('.sh') ? nome : `${nome}.sh`;
+    const caminhoAbs = path.join(raizWorkspace, nomeArquivo);
+
+    if (fs.existsSync(caminhoAbs)) {
+      this.enviar({ tipo: 'notificacao.info', mensagem: `O arquivo ${nomeArquivo} já existe no workspace.` });
+      await this.abrirScriptNoEditor(nomeArquivo);
+      return;
+    }
+
+    const conteudo = `#!/usr/bin/env bash
+# ==============================================================================
+# Script de Validação e QA (QAssistant)
+# Executado automaticamente pelo QA Runner
+# ==============================================================================
+
+set -e
+
+echo "🚀 Iniciando validação de QA..."
+echo "📅 Data: $(date)"
+echo ""
+
+# Adicione suas validações ou suítes de teste abaixo:
+# npm test
+# npm run lint
+# npm run typecheck
+
+echo "✅ Verificações de QA concluídas com sucesso!"
+`;
+
+    fs.writeFileSync(caminhoAbs, conteudo, { mode: 0o755, encoding: 'utf8' });
+    this.enviar({ tipo: 'notificacao.info', mensagem: `Script "${nomeArquivo}" criado com sucesso!` });
+    await this.listarScriptsWorkspace(this.pastaScriptsQA);
+    await this.abrirScriptNoEditor(nomeArquivo);
+  }
+
+  private async executarScript(caminhoRelativo: string, argsStr?: string, noTerminal?: boolean): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Abra um workspace antes de executar scripts.' });
+      return;
+    }
+
+    const caminhoAbs = path.resolve(raizWorkspace, caminhoRelativo);
+    if (!fs.existsSync(caminhoAbs)) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Script não encontrado: ${caminhoRelativo}` });
+      return;
+    }
+
+    if (noTerminal) {
+      const comando = `bash ./${caminhoRelativo} ${argsStr || ''}`.trim();
+      await this.executarComandoTerminal(comando);
+      return;
+    }
+
+    if (this.execucaoTestes.status === 'executando') {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: 'Uma execução de QA já está em andamento.' });
+      return;
+    }
+
+    try {
+      const stat = fs.statSync(caminhoAbs);
+      if ((stat.mode & 0o111) === 0) {
+        fs.chmodSync(caminhoAbs, 0o755);
+      }
+    } catch {
+      // Ignora erro de permissão
+    }
+
+    const args = argsStr ? argsStr.trim().split(/\s+/).filter(Boolean) : [];
+    const comandoStr = `bash ${caminhoRelativo} ${args.join(' ')}`.trim();
+
+    this.execucaoTestes.status = 'executando';
+    this.execucaoTestes.categoriaAtiva = path.basename(caminhoRelativo);
+    this.execucaoTestes.nomeExecucao = caminhoRelativo;
+    this.execucaoTestes.logs = `[${new Date().toLocaleTimeString('pt-BR')}] Executando: ${comandoStr}\n----------------------------------------\n`;
+    this.execucaoTestes.errosCount = 0;
+    this.execucaoTestes.sucessosCount = 0;
+    this.execucaoTestes.totalCount = 0;
+    this.execucaoTestes.falhasDetalhes = [];
+    await this.atualizar();
+
+    const inicio = Date.now();
+    let logsAcumulados = '';
+
+    try {
+      const child = cpSpawn('bash', [caminhoAbs, ...args], {
+        cwd: raizWorkspace,
+        env: {
+          ...process.env,
+          FORCE_COLOR: '1',
+          CI: 'true',
+        },
+      });
+
+      child.stdout.on('data', (d: Buffer) => {
+        const txt = d.toString('utf8');
+        logsAcumulados += txt;
+        this.execucaoTestes.logs =
+          `[${new Date().toLocaleTimeString('pt-BR')}] Executando: ${comandoStr}\n----------------------------------------\n` +
+          logsAcumulados;
+        void this.atualizar();
+      });
+
+      child.stderr.on('data', (d: Buffer) => {
+        const txt = d.toString('utf8');
+        logsAcumulados += txt;
+        this.execucaoTestes.logs =
+          `[${new Date().toLocaleTimeString('pt-BR')}] Executando: ${comandoStr}\n----------------------------------------\n` +
+          logsAcumulados;
+        void this.atualizar();
+      });
+
+      child.on('close', async (code: number | null) => {
+        const duracaoSegundos = Number(((Date.now() - inicio) / 1000).toFixed(1));
+        const sucesso = code === 0;
+
+        const passes = (logsAcumulados.match(/✔|PASS|passed|sucesso/gi) || []).length;
+        const fails = (logsAcumulados.match(/❌|FAIL|failed|erro/gi) || []).length;
+
+        this.execucaoTestes.status = sucesso ? 'sucesso' : 'erro';
+        this.execucaoTestes.sucessosCount = passes || (sucesso ? 1 : 0);
+        this.execucaoTestes.errosCount = fails || (sucesso ? 0 : 1);
+        this.execucaoTestes.totalCount = this.execucaoTestes.sucessosCount + this.execucaoTestes.errosCount || 1;
+
+        const rodape = `\n----------------------------------------\n[${new Date().toLocaleTimeString('pt-BR')}] Processo finalizado com código ${code ?? 0} (${duracaoSegundos}s) - ${sucesso ? '✅ SUCESSO' : '❌ FALHA'}\n`;
+        this.execucaoTestes.logs += rodape;
+
+        this.execucaoTestes.historico.unshift({
+          id: `script-${Date.now()}`,
+          categoria: path.basename(caminhoRelativo),
+          nomeExecucao: caminhoRelativo,
+          status: sucesso ? 'sucesso' : 'erro',
+          dataHora: new Date().toLocaleDateString('pt-BR') + ' ' + new Date().toLocaleTimeString('pt-BR'),
+          total: this.execucaoTestes.totalCount,
+          erros: this.execucaoTestes.errosCount,
+          segundos: duracaoSegundos,
+        });
+
+        this.enviar({
+          tipo: 'testes.scriptExecutado',
+          caminhoRelativo,
+          sucesso,
+          codigoSaida: code,
+          logs: this.execucaoTestes.logs,
+        });
+
+        this.enviar({
+          tipo: sucesso ? 'notificacao.info' : 'notificacao.erro',
+          mensagem: `Script ${path.basename(caminhoRelativo)} concluído: ${sucesso ? 'Sucesso' : 'Falhou com código ' + code} (${duracaoSegundos}s)`,
+        });
+
+        await this.atualizar();
+      });
+
+      child.on('error', async (err: Error) => {
+        this.execucaoTestes.status = 'erro';
+        this.execucaoTestes.logs += `\nErro ao iniciar processo: ${err.message}\n`;
+        this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao executar script: ${err.message}` });
+        await this.atualizar();
+      });
+    } catch (err: any) {
+      this.execucaoTestes.status = 'erro';
+      this.execucaoTestes.logs += `\nExceção: ${err.message}\n`;
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Falha: ${err.message}` });
       await this.atualizar();
     }
   }
@@ -2550,6 +3027,129 @@ ${logsSnippet || '(Sem logs)'}
     }
 
     return falhas;
+  }
+
+  private async obterContextoClienteOpenProject(): Promise<{ cliente: ClienteOpenProject; projetoHref: string } | null> {
+    const apiKey = await this.obterChaveOpenProject();
+    if (!apiKey) return null;
+    const raizWorkspace = obterRaizWorkspace();
+    const configuracao = raizWorkspace ? carregarConfiguracaoWorkspace(raizWorkspace) : null;
+    const baseUrl = this.obterBaseUrlOpenProject(configuracao);
+    const projetoId = configuracao?.openProject?.projetoId || OPENPROJECT_PROJETO_PADRAO;
+    const cliente = new ClienteOpenProject(baseUrl, apiKey);
+    const projeto = await cliente.resolverProjeto(projetoId);
+    return { cliente, projetoHref: projeto.apiHref };
+  }
+
+  private async criarTaskOpenProject(assunto: string, descricao?: string, tipoNome?: string, prioridadeNome?: string): Promise<void> {
+    try {
+      const contexto = await this.obterContextoClienteOpenProject();
+      if (!contexto) {
+        throw new Error('Configure a conexão com o OpenProject antes de criar uma tarefa.');
+      }
+      const { cliente, projetoHref } = contexto;
+      const novaTask = await cliente.criarTask(projetoHref, {
+        assunto,
+        descricao,
+      });
+      this.openprojectTasks.unshift(novaTask);
+      this.enviar({ tipo: 'openproject.taskCriada', task: novaTask });
+      this.enviar({ tipo: 'notificacao.info', mensagem: `Tarefa #${novaTask.id} criada com sucesso no OpenProject!` });
+      await this.atualizar();
+    } catch (err: any) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Erro ao criar tarefa: ${err.message}` });
+    }
+  }
+
+  private async abrirTaskNoNavegador(taskId: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    const configuracao = raizWorkspace ? carregarConfiguracaoWorkspace(raizWorkspace) : null;
+    const baseUrl = this.obterBaseUrlOpenProject(configuracao);
+    const url = `${baseUrl.replace(/\/+$/, '')}/work_packages/${taskId.replace(/^#/, '')}`;
+    await vscode.env.openExternal(vscode.Uri.parse(url));
+  }
+
+  private async abrirTerminalTask(taskId: string, assunto: string, tipo?: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+    const config = carregarConfiguracaoWorkspace(raizWorkspace);
+    const padraoBranch = config?.terminal?.padraoBranch;
+
+    const res = await this.ponteTerminal.criarBranchETerminal({
+      taskId,
+      assunto,
+      raizWorkspace,
+      tipo,
+      padraoBranch,
+    });
+    if (res.sucesso) {
+      this.enviar({ tipo: 'terminal.sucesso', mensagem: res.mensagem });
+    } else {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: res.mensagem });
+    }
+  }
+
+  private async salvarConfiguracaoTerminal(dados: {
+    padraoBranch: string;
+    ferramentaAgente: 'claude' | 'gemini' | 'aider' | 'custom' | 'nenhum';
+    comandoCustomizado?: string;
+    comandosRapidos?: Array<{ rotulo: string; comando: string }>;
+  }): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+    const configAtual = carregarConfiguracaoWorkspace(raizWorkspace) || criarConfiguracaoPadrao(raizWorkspace);
+    configAtual.terminal = {
+      padraoBranch: dados.padraoBranch,
+      ferramentaAgente: dados.ferramentaAgente,
+      comandoCustomizado: dados.comandoCustomizado,
+      comandosRapidos: dados.comandosRapidos || configAtual.terminal?.comandosRapidos,
+    };
+    salvarConfiguracaoWorkspace(raizWorkspace, configAtual);
+    this.enviar({ tipo: 'notificacao.info', mensagem: 'Padrão de branch e configurações salvas com sucesso!' });
+    await this.atualizar();
+  }
+
+  private async executarAgenteComTask(taskId: string, ferramenta: 'claude' | 'gemini' | 'aider' | 'custom'): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+    const task = this.openprojectTasks.find((t) => t.id === taskId);
+    if (!task) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Tarefa #${taskId} não encontrada.` });
+      return;
+    }
+    const config = carregarConfiguracaoWorkspace(raizWorkspace);
+    const padraoBranch = config?.terminal?.padraoBranch;
+    const comandoCustomizado = config?.terminal?.comandoCustomizado;
+
+    const res = await this.ponteTerminal.executarAgenteComTask({
+      task,
+      raizWorkspace,
+      ferramenta,
+      padraoBranch,
+      comandoCustomizado,
+    });
+
+    if (res.sucesso) {
+      this.enviar({ tipo: 'terminal.sucesso', mensagem: res.mensagem });
+    } else {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: res.mensagem });
+    }
+  }
+
+  private async copiarPromptAgente(taskId: string): Promise<void> {
+    const task = this.openprojectTasks.find((t) => t.id === taskId);
+    if (!task) {
+      this.enviar({ tipo: 'notificacao.erro', mensagem: `Tarefa #${taskId} não encontrada.` });
+      return;
+    }
+    await this.ponteTerminal.copiarPromptParaClipboard(task);
+    this.enviar({ tipo: 'notificacao.info', mensagem: `Prompt da tarefa #${taskId} copiado para a área de transferência!` });
+  }
+
+  private async executarComandoTerminal(comando: string): Promise<void> {
+    const raizWorkspace = obterRaizWorkspace();
+    if (!raizWorkspace) return;
+    await this.ponteTerminal.executarNoTerminal(comando, raizWorkspace);
   }
 
   private enviar(mensagem: MensagemHostParaWebview): void {

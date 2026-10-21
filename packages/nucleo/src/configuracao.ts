@@ -26,8 +26,9 @@ export function criarConfiguracaoPadrao(raizWorkspace: string): ConfiguracaoQAss
       nome: path.basename(raizWorkspace),
     },
     setup: {
-      criarContextoProjeto: true,
+      criarContextoProjeto: false,
       criarAssetsAgent: true,
+      criarEstruturaTestesPadrao: false,
     },
     caminhos: {
       raizCodigo: '.',
@@ -36,10 +37,21 @@ export function criarConfiguracaoPadrao(raizWorkspace: string): ConfiguracaoQAss
     },
     openProject: {
       habilitado: true,
-      intervaloPollingSegundos: 60,
+      urlBase: 'https://openproject.ormel.com.br',
+      projetoId: '28',
+      intervaloPollingSegundos: 30,
     },
     resumos: {
       commitsPadrao: 10,
+    },
+    terminal: {
+      padraoBranch: '{tipo}/OP-{id}-{slug}',
+      ferramentaAgente: 'claude',
+      comandosRapidos: [
+        { rotulo: 'Git Status', comando: 'git status' },
+        { rotulo: 'Rodar Testes', comando: 'npm test' },
+        { rotulo: 'Git Push', comando: 'git push origin HEAD' },
+      ],
     },
   };
 }
@@ -110,6 +122,16 @@ export function normalizarConfiguracao(raizWorkspace: string, configuracao: Conf
     },
     resumos: {
       commitsPadrao: normalizarInteiro(configuracao.resumos?.commitsPadrao, 10, 1),
+    },
+    terminal: {
+      padraoBranch: (configuracao.terminal?.padraoBranch || '').trim() || '{tipo}/OP-{id}-{slug}',
+      ferramentaAgente: configuracao.terminal?.ferramentaAgente || 'claude',
+      comandoCustomizado: limparString(configuracao.terminal?.comandoCustomizado),
+      comandosRapidos: configuracao.terminal?.comandosRapidos || [
+        { rotulo: 'Git Status', comando: 'git status' },
+        { rotulo: 'Rodar Testes', comando: 'npm test' },
+        { rotulo: 'Git Push', comando: 'git push origin HEAD' },
+      ],
     },
   };
 }
