@@ -410,17 +410,18 @@ export const App: FC = () => {
           </div>
         </div>
 
-        {/* Abas de Navegação Estilo GitHub / Linear */}
+        {/* Abas de Navegação Segmentada Estilo Linear / Raycast */}
         <nav className="tabs-navigation-clean" aria-label="Navegação Principal">
           <button
             type="button"
             className={`tab-btn-clean ${abaAtiva === 'openproject' ? 'active' : ''}`}
             onClick={() => setAbaAtiva('openproject')}
+            title="Tarefas do OpenProject"
           >
-            <ListTodo size={13} style={{ display: 'inline', marginRight: 5, verticalAlign: 'middle' }} />
+            <ListTodo size={12} />
             <span>Tarefas</span>
             {novasTarefasCount > 0 && (
-              <span className="qa-badge qa-badge-nova qa-badge-sm" style={{ marginLeft: 4 }}>
+              <span className="qa-tab-counter-badge">
                 {novasTarefasCount}
               </span>
             )}
@@ -430,17 +431,19 @@ export const App: FC = () => {
             type="button"
             className={`tab-btn-clean ${abaAtiva === 'terminal' ? 'active' : ''}`}
             onClick={() => setAbaAtiva('terminal')}
+            title="Terminal & Agentes de IA"
           >
-            <Terminal size={13} style={{ display: 'inline', marginRight: 5, verticalAlign: 'middle' }} />
-            <span>Terminal & Agentes</span>
+            <Terminal size={12} />
+            <span>Terminal</span>
           </button>
 
           <button
             type="button"
             className={`tab-btn-clean ${abaAtiva === 'testes' ? 'active' : ''}`}
             onClick={() => setAbaAtiva('testes')}
+            title="QA Runner & Scripts de Validação"
           >
-            <FileCheck size={13} style={{ display: 'inline', marginRight: 5, verticalAlign: 'middle' }} />
+            <FileCheck size={12} />
             <span>QA Runner</span>
           </button>
 
@@ -448,9 +451,10 @@ export const App: FC = () => {
             type="button"
             className={`tab-btn-clean ${abaAtiva === 'configuracao' ? 'active' : ''}`}
             onClick={() => setAbaAtiva('configuracao')}
+            title="Configurações e Setup"
           >
-            <Settings size={13} style={{ display: 'inline', marginRight: 5, verticalAlign: 'middle' }} />
-            <span>Configuração</span>
+            <Settings size={12} />
+            <span>Ajustes</span>
           </button>
         </nav>
       </header>

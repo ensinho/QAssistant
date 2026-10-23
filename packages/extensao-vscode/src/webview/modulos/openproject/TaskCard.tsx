@@ -1,7 +1,6 @@
 import type { FC, MouseEvent } from 'react';
-import { Terminal, Copy, ExternalLink, User, AlertCircle, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { Terminal, Copy, ExternalLink, User, Flame, Sparkles } from 'lucide-react';
 import type { TaskOpenProjectQA } from '../../../contratos/mensagens';
-import { Badge, type VarianteBadge } from '../ui/Badge';
 
 interface TaskCardProps {
   task: TaskOpenProjectQA;
@@ -11,32 +10,30 @@ interface TaskCardProps {
   aoAbrirNavegador: (task: TaskOpenProjectQA) => void;
 }
 
-function obterVarianteStatus(status: string): VarianteBadge {
+function obterStatusClass(status: string): string {
   const s = status.toLowerCase();
   if (s.includes('fech') || s.includes('conclu') || s.includes('resolv') || s.includes('final')) {
-    return 'sucesso';
+    return 'concluido';
   }
   if (s.includes('andamento') || s.includes('progresso') || s.includes('desenvolv')) {
-    return 'info';
+    return 'andamento';
   }
   if (s.includes('bloque') || s.includes('imped') || s.includes('rejeit')) {
-    return 'erro';
+    return 'bloqueado';
   }
   if (s.includes('qa') || s.includes('teste') || s.includes('revis') || s.includes('aguard')) {
-    return 'aviso';
+    return 'aguardando';
   }
   if (s.includes('novo') || s.includes('nova') || s.includes('abert')) {
-    return 'roxo';
+    return 'novo';
   }
   return 'default';
 }
 
-function obterVariantePrioridade(prioridade?: string): VarianteBadge {
-  if (!prioridade) return 'default';
+function ehUrgente(prioridade?: string): boolean {
+  if (!prioridade) return false;
   const p = prioridade.toLowerCase();
-  if (p.includes('alt') || p.includes('urgent') || p.includes('imedi')) return 'erro';
-  if (p.includes('baix')) return 'default';
-  return 'aviso';
+  return p.includes('alt') || p.includes('urgent') || p.includes('imedi');
 }
 
 export const TaskCard: FC<TaskCardProps> = ({
@@ -47,8 +44,8 @@ export const TaskCard: FC<TaskCardProps> = ({
   aoAbrirNavegador,
 }) => {
   const ehBug = task.tipo?.toLowerCase().includes('bug');
-  const statusVariante = obterVarianteStatus(task.status);
-  const prioridadeVariante = obterVariantePrioridade(task.prioridade);
+  const urgente = ehUrgente(task.prioridade);
+  const statusClass = obterStatusClass(task.status);
 
   const handleClickAcao = (e: MouseEvent, acao: () => void) => {
     e.stopPropagation();
@@ -57,7 +54,7 @@ export const TaskCard: FC<TaskCardProps> = ({
 
   return (
     <div
-      className={`qa-task-card ${task.isNova ? 'qa-task-card-nova' : ''}`}
+      className={`qa-task-card qa-task-card-${statusClass} ${task.isNova ? 'is-nova' : ''}`}
       onClick={() => aoSelecionar(task)}
       role="button"
       tabIndex={0}
@@ -67,79 +64,79 @@ export const TaskCard: FC<TaskCardProps> = ({
         }
       }}
     >
-      <div className="qa-task-card-header">
-        <div className="qa-task-card-ids">
-          <span className="qa-task-id">#{task.id}</span>
+      {/* Topo do Card: ID, Tipo, Urgência e Status */}
+      <div className="qa-card-top-row">
+        <div className="qa-card-meta-left">
+          <span className="qa-card-id">#{task.id}</span>
+
           {task.isNova && (
-            <Badge variante="nova" icone={<Sparkles size={10} />}>
-              NOVA
-            </Badge>
+            <span className="qa-tag-nova">
+              <Sparkles size={9} />
+              <span>Nova</span>
+            </span>
           )}
+
           {task.tipo && (
-            <Badge variante={ehBug ? 'erro' : 'default'}>
+            <span className={`qa-card-type-tag ${ehBug ? 'is-bug' : ''}`}>
               {task.tipo}
-            </Badge>
+            </span>
+          )}
+
+          {urgente && (
+            <span className="qa-tag-urgente" title={`Prioridade: ${task.prioridade}`}>
+              <Flame size={10} />
+            </span>
           )}
         </div>
 
-        <div className="qa-task-card-badges">
-          <Badge variante={statusVariante}>
-            {task.status}
-          </Badge>
-          {task.prioridade && task.prioridade !== 'Normal' && (
-            <Badge variante={prioridadeVariante}>
-              {task.prioridade}
-            </Badge>
-          )}
+        {/* Status com Indicador Redondo e Texto */}
+        <div className={`qa-status-pill qa-status-${statusClass}`} title={`Status: ${task.status}`}>
+          <span className="qa-status-dot" />
+          <span className="qa-status-label">{task.status}</span>
         </div>
       </div>
 
-      <div className="qa-task-subject" title={task.assunto}>
+      {/* Título / Assunto */}
+      <div className="qa-card-subject" title={task.assunto}>
         {task.assunto}
       </div>
 
-      <div className="qa-task-card-footer">
-        <div className="qa-task-meta">
-          {task.responsavel ? (
-            <span className="qa-task-meta-item" title={`Responsável: ${task.responsavel}`}>
-              <User size={12} />
-              <span>{task.responsavel}</span>
-            </span>
-          ) : (
-            <span className="qa-task-meta-item qa-task-meta-unassigned">
-              <User size={12} />
-              <span>Não atribuído</span>
-            </span>
-          )}
+      {/* Rodapé do Card: Responsável + Ações Rápidas em Linha Única */}
+      <div className="qa-card-bottom-row">
+        <div className="qa-card-assignee" title={`Responsável: ${task.responsavel || 'Não atribuído'}`}>
+          <User size={11} className="qa-assignee-icon" />
+          <span className={`qa-assignee-name ${!task.responsavel ? 'is-unassigned' : ''}`}>
+            {task.responsavel || 'Não atribuído'}
+          </span>
         </div>
 
-        <div className="qa-task-quick-actions">
+        <div className="qa-card-actions-group">
           <button
             type="button"
-            className="qa-btn-action-pill"
-            title="Criar branch e abrir terminal no VS Code"
+            className="qa-card-btn-terminal"
+            title="Criar branch Git e abrir terminal no VS Code"
             onClick={(e) => handleClickAcao(e, () => aoAbrirTerminal(task))}
           >
-            <Terminal size={12} />
-            <span>Terminal</span>
+            <Terminal size={11} />
+            <span className="qa-btn-label">Terminal</span>
           </button>
 
           <button
             type="button"
-            className="qa-btn-action-icon"
-            title="Copiar prompt da task para Agente CLI (Claude, Gemini, etc)"
+            className="qa-card-btn-icon"
+            title="Copiar prompt da task para Agentes CLI"
             onClick={(e) => handleClickAcao(e, () => aoCopiarPrompt(task))}
           >
-            <Copy size={12} />
+            <Copy size={11} />
           </button>
 
           <button
             type="button"
-            className="qa-btn-action-icon"
+            className="qa-card-btn-icon"
             title="Abrir no OpenProject (navegador)"
             onClick={(e) => handleClickAcao(e, () => aoAbrirNavegador(task))}
           >
-            <ExternalLink size={12} />
+            <ExternalLink size={11} />
           </button>
         </div>
       </div>
