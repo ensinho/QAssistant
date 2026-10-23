@@ -2,7 +2,7 @@
   "name": "qassistant-vscode",
   "displayName": "QAssistant - QA & OpenProject Hub",
   "description": "QA operacional integrado ao OpenProject, terminal para agentes IA, runner de scripts (.sh) e relatórios em tempo real no VS Code.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "EnzoEsmeraldo",
   "icon": "media/qassistant-logo.png",
   "repository": {
