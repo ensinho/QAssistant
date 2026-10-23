@@ -2,6 +2,17 @@
 
 Todas as alterações notáveis no projeto **QAssistant** serão documentadas neste arquivo.
 
+## [2.0.1] - 2026-10-23
+
+### 🎨 Melhorias de UI / UX & Responsividade
+- **Feed Ultra-Clean (Estilo Linear / Raycast):**
+  - Redesenho de alta densidade dos cards de tarefas, reduzindo altura vertical em 50% sem perda de legibilidade.
+  - Micro-dots indicativos de status com acento visual lateral e botões de ação rápida discretos (`>_ Terminal`, `Copiar Prompt`, `Link`).
+  - Barra de busca, botão `+ Nova` e recarregar posicionados em linha única compacta e responsiva.
+  - Abas superiores em estilo controle segmentado com barra de rolagem oculta.
+- **Filtros Fluidos:**
+  - Chips de filtragem com contadores em tempo real e rolagem horizontal suave.
+
 ## [2.0.0] - 2026-10-21
 
 ### ✨ Adicionado
