@@ -6,9 +6,6 @@ import {
   RefreshCw,
   Sparkles,
   Inbox,
-  Filter,
-  AlertCircle,
-  ExternalLink,
   Flame,
 } from 'lucide-react';
 import type { TaskOpenProjectQA, UsuarioOpenProjectQA } from '../../../contratos/mensagens';
@@ -102,7 +99,6 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
   // Filtragem reativa
   const tasksFiltradas = useMemo(() => {
     return tasks.filter((task) => {
-      // Filtro de texto/ID
       if (busca.trim()) {
         const termo = busca.toLowerCase().trim();
         const bateuId = task.id.toLowerCase().includes(termo.replace('#', ''));
@@ -111,7 +107,6 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
         if (!bateuId && !bateuAssunto && !bateuResp) return false;
       }
 
-      // Filtro por categoria chip
       if (filtroAtivo === 'novas') return !!task.isNova;
       if (filtroAtivo === 'bugs') return task.tipo?.toLowerCase().includes('bug');
       if (filtroAtivo === 'qa') {
@@ -152,14 +147,14 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
 
   return (
     <div className="qa-feed-wrapper">
-      {/* Barra Superior de Controles e Status */}
+      {/* Barra de Busca + Ações Rápidas (Linha Única & Ultra Clean) */}
       <div className="qa-feed-toolbar">
         <div className="qa-feed-search-box">
-          <Search size={14} className="qa-search-icon" />
+          <Search size={13} className="qa-search-icon" />
           <input
             type="text"
             className="qa-search-input"
-            placeholder="Buscar por #ID, título ou responsável..."
+            placeholder="Buscar tarefas (#id, título, pessoa)..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
           />
@@ -175,37 +170,35 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           )}
         </div>
 
-        <div className="qa-feed-toolbar-actions">
-          <button
-            type="button"
-            className="qa-btn-action-primary"
-            onClick={() => setModalCriarAberto(true)}
-            title="Criar nova tarefa no OpenProject"
-          >
-            <Plus size={14} />
-            <span>Nova Task</span>
-          </button>
+        <button
+          type="button"
+          className="qa-btn-nova-task"
+          onClick={() => setModalCriarAberto(true)}
+          title="Criar nova tarefa no OpenProject"
+        >
+          <Plus size={13} />
+          <span className="qa-btn-nova-text">Nova</span>
+        </button>
 
-          <button
-            type="button"
-            className={`qa-btn-icon-subtle ${carregando ? 'qa-spin' : ''}`}
-            onClick={aoSincronizar}
-            title="Sincronizar agora com OpenProject"
-            disabled={carregando}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className={`qa-btn-icon-subtle ${carregando ? 'qa-spin' : ''}`}
+          onClick={aoSincronizar}
+          title="Sincronizar agora com OpenProject"
+          disabled={carregando}
+        >
+          <RefreshCw size={13} />
+        </button>
       </div>
 
-      {/* Chips de Filtros Rápidos */}
+      {/* Chips de Filtros Rápidos com Scroll Suave Invisível */}
       <div className="qa-feed-filter-chips">
         <button
           type="button"
           className={`qa-chip ${filtroAtivo === 'todas' ? 'qa-chip-active' : ''}`}
           onClick={() => setFiltroAtivo('todas')}
         >
-          Todas ({tasks.length})
+          Todas <span className="qa-chip-num">{tasks.length}</span>
         </button>
 
         {counts.novas > 0 && (
@@ -215,7 +208,8 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
             onClick={() => setFiltroAtivo('novas')}
           >
             <Sparkles size={11} />
-            <span>Novas ({counts.novas})</span>
+            <span>Novas</span>
+            <span className="qa-chip-num">{counts.novas}</span>
           </button>
         )}
 
@@ -225,7 +219,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           onClick={() => setFiltroAtivo('minhas')}
           title={usuarioAtual?.nome ? `Atribuídas a ${usuarioAtual.nome}` : 'Minhas tarefas'}
         >
-          Minhas ({counts.minhas})
+          Minhas <span className="qa-chip-num">{counts.minhas}</span>
         </button>
 
         <button
@@ -233,7 +227,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           className={`qa-chip ${filtroAtivo === 'qa' ? 'qa-chip-active' : ''}`}
           onClick={() => setFiltroAtivo('qa')}
         >
-          Para QA ({counts.qa})
+          Para QA <span className="qa-chip-num">{counts.qa}</span>
         </button>
 
         <button
@@ -241,7 +235,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           className={`qa-chip ${filtroAtivo === 'bugs' ? 'qa-chip-active' : ''}`}
           onClick={() => setFiltroAtivo('bugs')}
         >
-          Bugs ({counts.bugs})
+          Bugs <span className="qa-chip-num">{counts.bugs}</span>
         </button>
 
         <button
@@ -249,7 +243,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           className={`qa-chip ${filtroAtivo === 'andamento' ? 'qa-chip-active' : ''}`}
           onClick={() => setFiltroAtivo('andamento')}
         >
-          Em Andamento ({counts.andamento})
+          Em Andamento <span className="qa-chip-num">{counts.andamento}</span>
         </button>
 
         {counts.urgentes > 0 && (
@@ -259,21 +253,22 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
             onClick={() => setFiltroAtivo('urgentes')}
           >
             <Flame size={11} color="var(--qa-error)" />
-            <span>Urgentes ({counts.urgentes})</span>
+            <span>Urgentes</span>
+            <span className="qa-chip-num">{counts.urgentes}</span>
           </button>
         )}
       </div>
 
-      {/* Banner de Novas Tarefas em Tempo Real */}
+      {/* Banner Sutil de Novas Tarefas em Tempo Real */}
       {counts.novas > 0 && filtroAtivo !== 'novas' && (
         <div className="qa-live-banner" onClick={() => setFiltroAtivo('novas')}>
           <div className="qa-live-banner-left">
             <span className="qa-pulse-dot" />
             <span>
-              <strong>{counts.novas}</strong> nova(s) tarefa(s) detectada(s) em tempo real!
+              <strong>{counts.novas}</strong> nova(s) tarefa(s) detectada(s)
             </span>
           </div>
-          <span className="qa-live-banner-action">Ver apenas novas →</span>
+          <span className="qa-live-banner-action">Ver novas →</span>
         </div>
       )}
 
@@ -292,13 +287,13 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
           ))
         ) : (
           <div className="qa-empty-state">
-            <Inbox size={32} className="qa-empty-icon" />
+            <Inbox size={28} className="qa-empty-icon" />
             <h3 className="qa-empty-title">Nenhuma tarefa encontrada</h3>
             <p className="qa-empty-desc">
               {busca
-                ? `Nenhum resultado para o termo "${busca}".`
+                ? `Nenhum resultado para "${busca}".`
                 : filtroAtivo !== 'todas'
-                ? `Não há tarefas na categoria "${filtroAtivo}".`
+                ? `Não há tarefas na categoria selecionada.`
                 : !openProjectConectado
                 ? 'Conecte sua conta do OpenProject para visualizar tarefas.'
                 : 'Não há tarefas abertas no projeto selecionado.'}
@@ -308,7 +303,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
                 type="button"
                 className="qa-btn-action-primary"
                 onClick={aoIrParaConfig}
-                style={{ marginTop: 12 }}
+                style={{ marginTop: 10 }}
               >
                 Configurar Conexão
               </button>
@@ -321,7 +316,7 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
                     setBusca('');
                     setFiltroAtivo('todas');
                   }}
-                  style={{ marginTop: 12 }}
+                  style={{ marginTop: 10 }}
                 >
                   Limpar Filtros
                 </button>
@@ -335,11 +330,11 @@ export const OpenProjectFeed: FC<OpenProjectFeedProps> = ({
       <div className="qa-feed-footer-info">
         <span className="qa-sync-badge">
           <span className="qa-green-dot" />
-          <span>LiveSync ativo {projetoNome ? `(${projetoNome})` : ''}</span>
+          <span>LiveSync {projetoNome ? `(${projetoNome})` : ''}</span>
         </span>
         {ultimaSincronizacao && (
           <span className="qa-sync-time">
-            Atualizado às {new Date(ultimaSincronizacao).toLocaleTimeString('pt-BR')}
+            {new Date(ultimaSincronizacao).toLocaleTimeString('pt-BR')}
           </span>
         )}
       </div>
