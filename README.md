@@ -1,128 +1,120 @@
-# QAssistant
+# QAssistant para Visual Studio Code
 
-> Extensão para VS Code que transforma **commits em rodadas de teste rastreáveis**, integra com o **OpenProject** e apoia a QA com IA — sem geração cega de testes.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ensinho/QAssistant/main/packages/extensao-vscode/media/qassistant-logo.png" alt="QAssistant Logo" width="128" />
+</p>
 
-QAssistant é uma extensão de **QA operacional**: a partir dos commits do seu workspace, você monta pacotes de validação, gera resumos de impacto e baterias de teste com IA (Gemini), executa suítes locais e publica o resultado direto em uma task do OpenProject — tudo sem sair do editor.
+<p align="center">
+  <strong>Hub operacional de QA reativo, integração em tempo real com OpenProject, runner de validações (.sh) e orquestração de Agentes de IA no VS Code.</strong>
+</p>
 
-A IA atua como **apoio** (sugestões, cenários, lacunas, checklists). A revisão humana de todo conteúdo sugerido é obrigatória.
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=EnzoEsmeraldo.qassistant-vscode"><img src="https://img.shields.io/visual-studio-marketplace/v/EnzoEsmeraldo.qassistant-vscode?color=2fc7d2&label=Marketplace&logo=visual-studio-code" alt="Marketplace Version" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=EnzoEsmeraldo.qassistant-vscode"><img src="https://img.shields.io/visual-studio-marketplace/i/EnzoEsmeraldo.qassistant-vscode?color=blue&label=Installs" alt="Installs" /></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=EnzoEsmeraldo.qassistant-vscode"><img src="https://img.shields.io/visual-studio-marketplace/r/EnzoEsmeraldo.qassistant-vscode?color=brightgreen&label=Rating" alt="Rating" /></a>
+  <a href="https://github.com/ensinho/QAssistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+</p>
 
----
-
-## O que faz
-
-- **Pacotes de validação por commits** — selecione commits recentes (de um ou vários repositórios do workspace) e gere um pacote rastreável com `resumo-qa.md`, `commits.yaml` e guia de validação.
-- **Resumo de impacto com IA** — analisa os commits do pacote e preenche um relatório estruturado de impacto de QA.
-- **Sugestão de bateria de testes** — gera cenários Playwright e manuais a partir do resumo.
-- **QA Runner integrado** — executa suítes de teste locais por categoria, com logs ao vivo, métricas (passou/falhou) e um painel de **falhas detalhadas** com severidade (`HIGH` / `MEDIUM` / `LOW`).
-- **Integração com OpenProject** — valida conexão, lista work packages, publica/atualiza descrição via `resumo-qa.md`, consulta status, comenta e altera status de tasks (sob demanda).
-- **Navegador interno de artefatos** — explore as pastas de `Qassistant-testes/` e abra arquivos sem sair do painel.
-- **Criador de prompts de teste** — monta um prompt parametrizado (arquivos, pastas, contexto, observações) pronto para usar no seu agente.
-
----
-
-## Fluxo principal
-
-```
-1. Selecionar commits   →   2. Revisar pacote   →   3. Gerar pacote + IA + publicar
-```
-
-1. **Setup** — abra o workspace, informe o projeto e (opcional) conecte o OpenProject.
-2. **Commits** — escolha os commits da rodada (filtre por repositório).
-3. **Revisar** — confira a composição do pacote.
-4. **Gerar** — crie o pacote; rode o resumo de impacto e a sugestão de testes com IA.
-5. **Publicar** — envie o relatório para uma task do OpenProject (nova ou existente).
-6. **Executar** — rode as suítes pelo QA Runner e acompanhe falhas e relatórios.
+<p align="center">
+  <a href="#-visão-geral">Visão Geral</a> •
+  <a href="#-principais-recursos">Recursos</a> •
+  <a href="#-capturas-de-tela">Prints</a> •
+  <a href="#-guia-de-configuração">Configuração</a> •
+  <a href="#-desenvolvimento-local">Desenvolvimento</a>
+</p>
 
 ---
 
-## Instalação e build
+## 🌟 Visão Geral
 
-Pré-requisitos: **Node.js ≥ 18** e **VS Code**.
+O **QAssistant** conecta o seu fluxo de desenvolvimento e testes diários diretamente ao ecossistema do seu time:
+1. **Tarefas do OpenProject no seu editor** — Acompanhe status, crie novas tasks, filtre por prioridade e leia especificações com suporte completo a Markdown.
+2. **Terminal de Agentes de IA** — Inicie agentes locais como **Claude Code**, **Gemini CLI** ou **Aider** carregando automaticamente o contexto da tarefa e criando branches Git padronizadas com 1 clique.
+3. **QA Runner Descentralizado** — Execute scripts shell (`verify.sh`, `test.sh`, `check.sh`) ou suítes de teste de qualquer diretório do seu repositório, com logs ao vivo e publicação do relatório de validação direto na tarefa.
+
+---
+
+## 📸 Capturas de Tela
+
+<p align="center">
+  <strong>Feed de Tarefas & Gestão Rápida (Estilo Linear / Raycast)</strong><br />
+  <em>Cards de alta densidade, micro-dots indicativos de status, filtros reativos e ações rápidas.</em><br /><br />
+  <img src="https://raw.githubusercontent.com/ensinho/QAssistant/main/packages/extensao-vscode/media/screenshot-feed-clean.png" alt="Feed do OpenProject no QAssistant" width="420" />
+</p>
+
+<br />
+
+<p align="center">
+  <strong>Terminal & Orquestração de Agentes de IA</strong><br />
+  <em>Injeção automática do contexto da task, criação de branches padronizadas e atalhos rápidos.</em><br /><br />
+  <img src="https://raw.githubusercontent.com/ensinho/QAssistant/main/packages/extensao-vscode/media/screenshot-terminal-agents.png" alt="Terminal e Agentes no QAssistant" width="420" />
+</p>
+
+<br />
+
+<p align="center">
+  <strong>QA Runner Descentralizado (.sh / scripts)</strong><br />
+  <em>Sem pastas obrigatórias: descubra scripts em qualquer local e publique o relatório de execução na task.</em><br /><br />
+  <img src="https://raw.githubusercontent.com/ensinho/QAssistant/main/packages/extensao-vscode/media/screenshot-qa-runner.png" alt="QA Runner no QAssistant" width="420" />
+</p>
+
+---
+
+## 🚀 Principais Recursos
+
+### 1. 📋 Feed do OpenProject em Tempo Real
+- **Notificações Instantâneas (LiveSync)**: Identificação em tempo real de novas tarefas ou alterações de status.
+- **Filtros Inteligentes**: Filtre tarefas em um clique por *Novas*, *Minhas*, *Para QA*, *Bugs*, *Em Andamento* e *Urgentes*.
+- **Visualizador Rico**: Especificações com tabelas, blocos de código formatados e histórico de comentários.
+- **Criação e Atualização Rápida**: Abra novas histórias/bugs ou altere status diretamente pelo painel.
+
+### 2. 🤖 Terminal & Orquestração de Agentes IA
+- **Contexto Pré-Carregado**: Envie a descrição técnica da tarefa para o agente (Claude Code, Gemini CLI, Aider) sem precisar copiar e colar dados manualmente.
+- **Branches Padronizadas**: Gere branches Git configuráveis automaticamente (ex: `feat/OP-{id}-{slug}`, `bugfix/OP-{id}-{slug}`).
+- **Atalhos Produtivos**: Comandos rápidos de git e build direto no terminal integrado.
+
+### 3. 🧪 QA Runner Sem Imposição de Estrutura
+- **Liberdade Total de Organização**: Nenhuma pasta pré-fixada é imposta. Aponte para qualquer pasta de testes do seu repositório ou use a raiz.
+- **Auto-Discovery de Scripts**: Reconhece scripts executáveis como `verify.sh`, `test.sh`, `check.sh`.
+- **Gerador de `verify.sh`**: Cria um script inicial de verificação (`chmod +x`) com 1 clique caso seu projeto ainda não possua um.
+- **Publicação na Task**: Registre métricas de sucesso, tempo decorrido e resumo dos logs como comentário oficial na tarefa do OpenProject.
+
+---
+
+## 🛠️ Guia de Configuração
+
+1. Instale o **QAssistant** pela [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=EnzoEsmeraldo.qassistant-vscode).
+2. Abra a aba lateral do QAssistant na barra de atividades do VS Code.
+3. Na aba **Ajustes**, configure:
+   - **URL Base do OpenProject** (ex: `https://openproject.suaempresa.com.br`)
+   - **ID do Projeto**
+   - **API Key** (gerada no OpenProject em *Minha Conta > Tokens de Acesso > Chaves de API*)
+4. Clique em **Salvar e Validar Conexão**. As tarefas serão sincronizadas imediatamente!
+
+---
+
+## 💻 Desenvolvimento Local & Build
+
+O projeto é estruturado em um monorepo TypeScript limpo:
+- `packages/nucleo`: biblioteca de domínio puro e contratos de mensagem.
+- `packages/extensao-vscode`: host da extensão do VS Code e webview moderna em React + Vite.
 
 ```bash
-npm install                    # instala dependências do monorepo
+# Instala dependências do monorepo
+npm install
 
-npm run build                  # compila todos os pacotes
-npm run dev:webview            # Vite dev server (hot-reload da webview)
+# Compila todos os pacotes (núcleo + webview + host)
+npm run build
 
-npm run package:vsix           # gera o .vsix
-npm run package:vsix:install   # gera e instala no VS Code
-```
+# Executa testes e checagem de tipos
+npm test
 
-Outros scripts úteis:
-
-```bash
-npm run build:nucleo           # compila apenas @qassistant/nucleo
-npm run build:extensao         # compila a extensão (webview + host)
-npm run test                   # type-check de todos os pacotes
-npm run clean                  # remove dist/ e .tsbuildinfo
-```
-
-Após instalar o `.vsix`, abra o painel do QAssistant na barra lateral e siga o setup guiado.
-
----
-
-## Configuração
-
-A configuração fica em `.qassistant/config.json` no workspace alvo (schema validado por Zod em `@qassistant/nucleo`):
-
-| Campo | Descrição |
-| --- | --- |
-| `projeto.nome` | Nome do projeto exibido no painel. |
-| `caminhos.raizCodigo` | Pasta principal do código. |
-| `caminhos.frontend` / `backend` | Pastas opcionais por stack. |
-| `caminhos.repositorios` | **Opcional.** Lista de repositórios Git a escanear (relativos à raiz). Vazio = descoberta automática de `.git`. |
-| `openProject.urlBase` / `projetoId` | Conexão com o OpenProject. |
-| `resumos.commitsPadrao` | Quantidade padrão de commits por rodada. |
-
-**Segredos** (chave do Gemini e token do OpenProject) ficam no `SecretStorage` do VS Code — **nunca** em arquivos de configuração.
-
-### Estrutura criada no setup
-
-```
-Qassistant-testes/      # raiz operacional de testes (fixa)
-docs/contexto/          # contexto do projeto (opcional)
-.github/instructions/   # instruções para agentes (opcional)
-.github/skills/         # skills para agentes (opcional)
-.qassistant/config.json # configuração
+# Empacota a extensão para distribuição (.vsix)
+npm run package:vsix
 ```
 
 ---
 
-## Arquitetura
+## 📄 Licença
 
-Monorepo com separação estrita de camadas:
-
-```
-packages/nucleo/          → @qassistant/nucleo   (lógica de domínio pura, sem VS Code)
-packages/extensao-vscode/ → qassistant-vscode    (host + webview)
-```
-
-- **`@qassistant/nucleo`** — tipos, schema/validação de configuração (Zod), scaffold do workspace e constantes. Sem dependências do VS Code.
-- **Host** (`src/host/`) — ciclo de vida da extensão, comandos, providers de webview, integração Git, sistema de arquivos e chamadas ao OpenProject.
-- **Webview** (`src/webview/`) — app **React 19 + Vite**. Comunica-se com o host exclusivamente via `postMessage`, com contratos validados por Zod (`src/contratos/mensagens.ts`).
-
-O design system usa variáveis de tema do VS Code mapeadas para tokens `--qa-*`, respeitando temas claro/escuro.
-
----
-
-## Documentação
-
-Decisões de arquitetura e specs de produto vivem em [`docs/`](docs/INDEX.md):
-
-- [Visão do produto](docs/00-visao-do-produto.md)
-- [Arquitetura](docs/01-arquitetura.md)
-- [Scaffold do repositório](docs/02-scaffold-repositorio.md)
-- [Estrutura de `Qassistant-testes/`](docs/03-estrutura-qassistant-testes.md)
-- [Fluxos principais](docs/04-fluxos-principais.md)
-- [Nomenclatura e contratos](docs/05-nomenclatura-e-contratos.md)
-- [Design system e UX](docs/06-design-system-e-ux.md)
-- [Roteamento de demandas](docs/07-roteamento-de-demandas.md)
-
----
-
-## Limitações conhecidas (v2.0.x)
-
-- O **QA Runner** tem executor configurado para as suítes de ponta a ponta (Playwright); demais categorias dependem de configuração adicional.
-- A integração com OpenProject é **sob demanda** — ainda não há polling automático.
-- Os prompts de IA são voltados ao contexto do projeto alvo e ainda não são externalizáveis por arquivo.
+Distribuído sob a licença [MIT](https://github.com/ensinho/QAssistant/blob/main/LICENSE). Criado com foco em produtividade, clareza e controle por **Enzo Esmeraldo**.

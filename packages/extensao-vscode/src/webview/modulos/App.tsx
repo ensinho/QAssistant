@@ -30,14 +30,59 @@ import {
 const vscode = vsCodeApi;
 type AbaPrincipal = 'openproject' | 'terminal' | 'testes' | 'configuracao';
 
+const isBrowserDev = typeof (window as any).acquireVsCodeApi !== 'function';
+
+const mockDevTasks: TaskOpenProjectQA[] = [
+  {
+    id: '1464',
+    assunto: 'Validar fluxo de checkout e integração de pagamentos',
+    status: 'Em Andamento',
+    tipo: 'Feature',
+    prioridade: 'Alta',
+    responsavel: 'Enzo Esmeraldo',
+    isNova: false,
+    dataAtualizacao: new Date().toISOString(),
+  },
+  {
+    id: '1465',
+    assunto: 'Falha no cálculo do frete para regiões remotas',
+    status: 'Novo',
+    tipo: 'Bug',
+    prioridade: 'Imediata',
+    responsavel: 'Time de QA',
+    isNova: true,
+    dataAtualizacao: new Date().toISOString(),
+  },
+  {
+    id: '1462',
+    assunto: 'Pipeline de CI/CD: automatizar execução de verify.sh',
+    status: 'Concluído',
+    tipo: 'Tarefa',
+    prioridade: 'Normal',
+    responsavel: 'Enzo Esmeraldo',
+    isNova: false,
+    dataAtualizacao: new Date().toISOString(),
+  },
+  {
+    id: '1460',
+    assunto: 'Ajuste de acessibilidade e contraste nos botões primários',
+    status: 'Aguardando',
+    tipo: 'Melhoria',
+    prioridade: 'Baixa',
+    responsavel: 'Designer UI/UX',
+    isNova: false,
+    dataAtualizacao: new Date().toISOString(),
+  },
+];
+
 const estadoBase: EstadoPainel = {
   produto: 'QAssistant',
-  versaoExtensao: '2.0.0',
+  versaoExtensao: '2.0.1',
   assets: { logoUri: '' },
-  workspaceAberto: false,
-  workspaceInicializado: false,
-  raizWorkspace: '',
-  raizTestes: 'Qassistant-testes',
+  workspaceAberto: true,
+  workspaceInicializado: true,
+  raizWorkspace: '/workspace/projeto',
+  raizTestes: 'scripts',
   raizContexto: 'docs/contexto',
   configuracao: null,
   estrutura: null,
@@ -46,7 +91,7 @@ const estadoBase: EstadoPainel = {
     erro: null,
     recentes: [],
     carregadoEm: null,
-    branch: '',
+    branch: 'main',
     repositorios: [],
   },
   navegador: null,
@@ -55,8 +100,8 @@ const estadoBase: EstadoPainel = {
   ultimoPacoteValidacao: undefined,
   pacotesDisponiveis: [],
   geminiKeyPresente: false,
-  openProjectKeyPresente: false,
-  openprojectTasks: [],
+  openProjectKeyPresente: isBrowserDev,
+  openprojectTasks: isBrowserDev ? mockDevTasks : [],
   execucaoTestes: {
     categoriaAtiva: null,
     status: 'ocioso',
@@ -70,7 +115,15 @@ const estadoBase: EstadoPainel = {
 
 export const App: FC = () => {
   const [estado, setEstado] = useState<EstadoPainel>(estadoBase);
-  const [abaAtiva, setAbaAtiva] = useState<AbaPrincipal>('openproject');
+  const [abaAtiva, setAbaAtiva] = useState<AbaPrincipal>(() => {
+    if (typeof window !== 'undefined' && window.location.search) {
+      const tabParam = new URLSearchParams(window.location.search).get('tab');
+      if (tabParam === 'testes' || tabParam === 'terminal' || tabParam === 'configuracao') {
+        return tabParam;
+      }
+    }
+    return 'openproject';
+  });
   const [toasts, setToasts] = useState<ToastNotificacaoItem[]>([]);
   const [ultimaSincronizacao, setUltimaSincronizacao] = useState<string | null>(null);
   const [carregandoSync, setCarregandoSync] = useState(false);
